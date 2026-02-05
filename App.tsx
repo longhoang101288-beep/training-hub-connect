@@ -5,7 +5,7 @@ import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES } from './con
 import DashboardHeader from './components/DashboardHeader';
 import CourseCalendar from './components/CourseCalendar';
 import BottomNavigation from './components/BottomNavigation';
-import { generateTrainingPlanSummary } from './services/geminiService';
+import { generateTrainingPlanSummary, removeImageBackground } from './services/geminiService';
 import { fetchAllData, saveToSheet, seedDatabase } from './services/googleSheetService';
 
 const App: React.FC = () => {
@@ -243,14 +243,19 @@ const App: React.FC = () => {
       if (!bgRemoverImg) return;
       setIsProcessingBg(true);
       
-      // SIMULATION: In a real app, this would send 'bgRemoverImg' to an API (e.g., remove.bg or custom backend)
-      // Since we are client-side only for this demo, we will simulate the process delay.
-      await delay(2500); 
-      
-      // For demo purposes, we just return the original image but set it as "result" 
-      // In a real integration, 'bgRemoverResult' would be the transparent PNG URL.
-      setBgRemoverResult(bgRemoverImg);
-      setIsProcessingBg(false);
+      try {
+        const resultImage = await removeImageBackground(bgRemoverImg);
+        if (resultImage) {
+            setBgRemoverResult(resultImage);
+        } else {
+            alert("Không thể xử lý ảnh. Vui lòng thử lại với ảnh khác.");
+        }
+      } catch (error) {
+        console.error(error);
+        alert("Có lỗi xảy ra khi gọi AI.");
+      } finally {
+        setIsProcessingBg(false);
+      }
   };
 
   const getLocationPlaceholder = (fmt: string) => {
