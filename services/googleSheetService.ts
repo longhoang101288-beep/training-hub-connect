@@ -9,7 +9,7 @@ import { User, Course, Registration } from "../types";
 // 4. Who has access: Anyone (Bất kỳ ai) -> CỰC KỲ QUAN TRỌNG để tránh lỗi Failed to fetch
 // 5. Deploy -> Copy "Web App URL" và dán vào biến API_URL dưới đây thay cho link mẫu
 // =============================================================================================
-const API_URL = "https://script.google.com/macros/s/AKfycbwD-ZJCeGnuyyxSNeUWU_cPZDsH2oOhLOVbrBqnGVlWs_JVam317FkDcKxd7YXXhkwTog/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbxl9e5UsU7AZlgXTj_ESerpzoIVOLyns0n2cH25tqpXuCUmk7CQ7yMfTE2c3Wtf9uigZA/exec"; 
 
 export const fetchAllData = async () => {
   try {

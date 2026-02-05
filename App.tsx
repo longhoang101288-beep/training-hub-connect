@@ -105,20 +105,25 @@ const App: React.FC = () => {
     if (!isBackground) setIsLoading(true);
     else setIsSyncing(true);
 
-    const data = await fetchAllData();
-    if (data) {
-      setUsers(data.users || []);
-      setCourses(data.courses || []);
-      setRegistrations(data.registrations || []);
+    try {
+      const data = await fetchAllData();
       
-      // Load Settings if available, otherwise defaults
-      if (data.settings && data.settings.popup) {
-        setSystemSettings({ popup: data.settings.popup });
-        setPopupConfigForm(data.settings.popup);
+      if (data) {
+        setUsers(data.users || []);
+        setCourses(data.courses || []);
+        setRegistrations(data.registrations || []);
+        
+        // Load Settings if available, otherwise defaults
+        if (data.settings && data.settings.popup) {
+          setSystemSettings({ popup: data.settings.popup });
+          setPopupConfigForm(data.settings.popup);
+        }
+        
+        setDbConnected(true);
+      } else {
+        throw new Error("No data received");
       }
-      
-      setDbConnected(true);
-    } else {
+    } catch (error) {
       if (!isBackground) {
         console.warn("Không thể kết nối Database. Chuyển sang chế độ Offline với dữ liệu mẫu.");
         setUsers(INITIAL_USERS);
@@ -132,10 +137,10 @@ const App: React.FC = () => {
         ]);
         setDbConnected(false);
       }
+    } finally {
+      if (!isBackground) setIsLoading(false);
+      else setIsSyncing(false);
     }
-
-    if (!isBackground) setIsLoading(false);
-    else setIsSyncing(false);
   };
 
   useEffect(() => {
