@@ -1214,6 +1214,67 @@ const App: React.FC = () => {
                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
                  
                  {/* ... Popup Config Card ... */}
+                 {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.KA) && (
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                     <div className="flex flex-col md:flex-row gap-8">
+                        {/* Preview */}
+                        <div className="w-full md:w-1/3">
+                           <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Hình ảnh Popup</label>
+                           <div className="aspect-[4/3] rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
+                              {popupConfigForm.imageUrl ? (
+                                <img src={popupConfigForm.imageUrl} className="w-full h-full object-contain" />
+                              ) : (
+                                <span className="text-slate-400 text-xs">Chưa có ảnh</span>
+                              )}
+                              <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
+                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                 <span className="text-white text-xs font-bold">Thay ảnh</span>
+                              </div>
+                           </div>
+                        </div>
+
+                        {/* Form */}
+                        <div className="flex-1 space-y-4">
+                           <div className="flex items-center justify-between">
+                              <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Global Popup</h3>
+                              <div className="flex items-center gap-2">
+                                 <span className={`text-xs font-bold ${popupConfigForm.isActive ? 'text-green-600' : 'text-slate-400'}`}>
+                                    {popupConfigForm.isActive ? 'Đang Bật' : 'Đang Tắt'}
+                                 </span>
+                                 <button 
+                                   onClick={() => setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive}))}
+                                   className={`w-12 h-6 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}
+                                 >
+                                    <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-6' : ''}`}></div>
+                                 </button>
+                              </div>
+                           </div>
+                           
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
+                              <input 
+                                type="text" 
+                                value={popupConfigForm.linkUrl} 
+                                onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})}
+                                placeholder="https://..."
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                              />
+                              <p className="text-[10px] text-slate-400 mt-1">Khi người dùng bấm vào ảnh popup sẽ mở link này.</p>
+                           </div>
+
+                           <div className="pt-2">
+                              <button 
+                                onClick={handleSavePopupConfig}
+                                disabled={isSaving}
+                                className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+                              >
+                                {isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình'}
+                              </button>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+                )}
                  
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                    <div 
