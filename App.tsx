@@ -90,6 +90,9 @@ const App: React.FC = () => {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
+  // --- TOOL STATES ---
+  const [activeTool, setActiveTool] = useState<'statistics' | null>(null);
+
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
     if (isBackground && !isPollingAllowed.current) return;
@@ -257,6 +260,55 @@ const App: React.FC = () => {
         case 'Livestream': return 'Link phát trực tiếp (Youtube, Facebook...)';
         default: return 'Địa điểm tổ chức';
     }
+  };
+
+  // --- STATISTICS CALCULATION ---
+  const calculateStatistics = () => {
+      if (!courses.length || !registrations.length) return null;
+
+      // 1. Course Stats
+      const totalCourses = courses.length;
+      const upcomingCourses = courses.filter(c => new Date(c.startDate) >= new Date()).length;
+      
+      // 2. Category Stats
+      const categoryCount: Record<string, number> = {};
+      courses.forEach(c => {
+          categoryCount[c.category] = (categoryCount[c.category] || 0) + 1;
+      });
+      const categories = Object.keys(categoryCount).map(key => ({
+          name: key,
+          count: categoryCount[key],
+          percent: Math.round((categoryCount[key] / totalCourses) * 100)
+      })).sort((a, b) => b.count - a.count);
+
+      // 3. Registration/Region Stats
+      const totalRegistrations = registrations.length;
+      const approvedRegistrations = registrations.filter(r => r.status === 'confirmed').length;
+      const approvalRate = totalRegistrations > 0 ? Math.round((approvedRegistrations / totalRegistrations) * 100) : 0;
+
+      const regionStats: Record<string, number> = {};
+      registrations.forEach(r => {
+          // Normalize region data just in case
+          const region = r.region || 'Khác';
+          regionStats[region] = (regionStats[region] || 0) + 1;
+      });
+
+      // Sort regions by activity (desc)
+      const topRegions = Object.keys(regionStats).map(key => ({
+          name: key,
+          count: regionStats[key],
+          percent: Math.round((regionStats[key] / totalRegistrations) * 100)
+      })).sort((a, b) => b.count - a.count);
+
+      return {
+          totalCourses,
+          upcomingCourses,
+          totalRegistrations,
+          approvedRegistrations,
+          approvalRate,
+          categories,
+          topRegions
+      };
   };
 
   // --- ACTIONS ---
@@ -1780,7 +1832,10 @@ const App: React.FC = () => {
                       <p className="text-xs text-slate-500">Slide bài giảng và video.</p>
                    </div>
                    
-                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
+                   <div 
+                      onClick={() => setActiveTool('statistics')}
+                      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
+                   >
                       <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                       </div>
@@ -1808,6 +1863,137 @@ const App: React.FC = () => {
                  <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-yellow-800 text-sm">
                     <strong>Lưu ý:</strong> Các tính năng này đang được phát triển và sẽ sớm ra mắt trong phiên bản tiếp theo.
                  </div>
+
+                 {/* STATISTICS DASHBOARD MODAL */}
+                 {activeTool === 'statistics' && calculateStatistics() && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                       <div className="bg-slate-50 rounded-3xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 shadow-2xl">
+                          <div className="bg-white p-4 lg:p-6 border-b border-slate-200 flex justify-between items-center shrink-0">
+                             <div>
+                                <h3 className="text-xl font-black text-slate-800">Dashboard Thống Kê</h3>
+                                <p className="text-sm text-slate-500 font-medium">Tổng quan hoạt động đào tạo toàn quốc</p>
+                             </div>
+                             <button onClick={() => setActiveTool(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                             </button>
+                          </div>
+                          
+                          <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6">
+                             {(() => {
+                                 const stats = calculateStatistics()!;
+                                 return (
+                                    <>
+                                       {/* KPI Cards */}
+                                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                                             <div className="flex items-center justify-between mb-2">
+                                                <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng Môn Học</span>
+                                                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                                                </div>
+                                             </div>
+                                             <p className="text-3xl font-black text-slate-800">{stats.totalCourses}</p>
+                                             <p className="text-xs text-slate-500 mt-1"><span className="text-emerald-500 font-bold">+{stats.upcomingCourses}</span> môn sắp diễn ra</p>
+                                          </div>
+                                          
+                                          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                                             <div className="flex items-center justify-between mb-2">
+                                                <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng Đăng Ký</span>
+                                                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                                </div>
+                                             </div>
+                                             <p className="text-3xl font-black text-slate-800">{stats.totalRegistrations}</p>
+                                             <p className="text-xs text-slate-500 mt-1">Học viên tham gia</p>
+                                          </div>
+
+                                          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                                             <div className="flex items-center justify-between mb-2">
+                                                <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tỉ Lệ Duyệt</span>
+                                                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                </div>
+                                             </div>
+                                             <p className="text-3xl font-black text-slate-800">{stats.approvalRate}%</p>
+                                             <p className="text-xs text-slate-500 mt-1">{stats.approvedRegistrations} lượt đã duyệt</p>
+                                          </div>
+
+                                          <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-5 rounded-2xl shadow-lg text-white">
+                                             <div className="flex items-center justify-between mb-2">
+                                                <span className="text-indigo-200 text-xs font-bold uppercase tracking-wider">AI Insight</span>
+                                                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                                </div>
+                                             </div>
+                                             <p className="text-sm font-medium leading-snug">
+                                                {stats.topRegions[0] 
+                                                    ? `${stats.topRegions[0].name} đang dẫn đầu về hoạt động đào tạo. Cần thúc đẩy thêm các vùng khác.`
+                                                    : 'Chưa có đủ dữ liệu để phân tích xu hướng.'}
+                                             </p>
+                                          </div>
+                                       </div>
+
+                                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                          {/* Main Chart: Region Performance */}
+                                          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
+                                             <h4 className="font-bold text-slate-800 mb-6">Hoạt Động Theo Khu Vực (Top Racing)</h4>
+                                             <div className="space-y-4">
+                                                {stats.topRegions.map((region, idx) => (
+                                                   <div key={idx} className="group">
+                                                      <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                                                         <span>{region.name}</span>
+                                                         <span>{region.count} lượt</span>
+                                                      </div>
+                                                      <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                                                         <div 
+                                                            className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                                                               idx === 0 ? 'bg-indigo-600' : 
+                                                               idx === 1 ? 'bg-indigo-500' : 
+                                                               idx === 2 ? 'bg-indigo-400' : 'bg-slate-300'
+                                                            }`} 
+                                                            style={{ width: `${region.percent}%` }}
+                                                         ></div>
+                                                      </div>
+                                                   </div>
+                                                ))}
+                                             </div>
+                                          </div>
+
+                                          {/* Secondary Chart: Categories */}
+                                          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                             <h4 className="font-bold text-slate-800 mb-6">Phân Bổ Nội Dung</h4>
+                                             <div className="space-y-5">
+                                                {stats.categories.map((cat, idx) => (
+                                                   <div key={idx} className="flex items-center gap-3">
+                                                      <div className="flex-1">
+                                                         <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                                                            <span>{cat.name}</span>
+                                                            <span className="text-slate-400">{cat.percent}%</span>
+                                                         </div>
+                                                         <div className="w-full bg-slate-100 rounded-full h-2">
+                                                            <div 
+                                                               className={`h-full rounded-full ${
+                                                                  cat.name === 'Sales' ? 'bg-emerald-500' : 
+                                                                  cat.name === 'Product' ? 'bg-blue-500' : 
+                                                                  cat.name === 'Soft Skills' ? 'bg-purple-500' : 'bg-orange-500'
+                                                               }`} 
+                                                               style={{ width: `${cat.percent}%` }}
+                                                            ></div>
+                                                         </div>
+                                                      </div>
+                                                   </div>
+                                                ))}
+                                                {stats.categories.length === 0 && <p className="text-slate-400 text-sm text-center">Chưa có môn học nào.</p>}
+                                             </div>
+                                          </div>
+                                       </div>
+                                    </>
+                                 );
+                             })()}
+                          </div>
+                       </div>
+                    </div>
+                 )}
                </div>
             )}
 
