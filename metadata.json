@@ -1,0 +1,8 @@
+{
+  "name": "Training Hub Connect",
+  "description": "A comprehensive training management platform for training centers to distribute monthly course catalogs to Area Sales Managers (ASM) and visualize scheduled training sessions on an interactive calendar for both ASMs and trainers.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
