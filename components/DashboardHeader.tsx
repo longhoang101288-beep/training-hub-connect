@@ -8,6 +8,7 @@ interface DashboardHeaderProps {
   dbConnected: boolean;
   courses?: Course[];
   registrations?: Registration[];
+  setActiveTab: (tab: string) => void;
 }
 
 interface NotificationItem {
@@ -16,11 +17,14 @@ interface NotificationItem {
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';
   timestamp: Date;
+  targetTab: string; // The tab to navigate to when clicked
 }
 
-const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbConnected, courses = [], registrations = [] }) => {
+const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbConnected, courses = [], registrations = [], setActiveTab }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  // Store IDs of notifications that have been manually cleared/read
+  const [clearedIds, setClearedIds] = useState<string[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
 
   // Close notification dropdown when clicking outside
@@ -49,7 +53,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                 title: 'Duyệt Môn Học',
                 message: `Có ${pendingCourses} môn học mới đang chờ bạn duyệt.`,
                 type: 'warning',
-                timestamp: new Date()
+                timestamp: new Date(),
+                targetTab: 'course-approvals'
             });
         }
 
@@ -60,7 +65,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                 title: 'Duyệt Đăng Ký',
                 message: `Có ${pendingRegs} yêu cầu đăng ký tham gia chờ xử lý.`,
                 type: 'info',
-                timestamp: new Date()
+                timestamp: new Date(),
+                targetTab: 'course-approvals'
             });
         }
     }
@@ -75,7 +81,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                 title: 'Môn Học Bị Từ Chối',
                 message: `Bạn có ${myRejectedCourses.length} môn học bị từ chối. Vui lòng kiểm tra và chỉnh sửa lại.`,
                 type: 'error',
-                timestamp: new Date()
+                timestamp: new Date(),
+                targetTab: 'manage-courses'
             });
         }
 
@@ -93,13 +100,13 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                 title: 'Môn Học Đã Được Duyệt',
                 message: `Chúc mừng! ${myApprovedCourses.length} môn học sắp tới của bạn đã được duyệt và xuất bản lên lịch.`,
                 type: 'success',
-                timestamp: new Date()
+                timestamp: new Date(),
+                targetTab: 'manage-courses'
             });
         }
     }
 
     // 3. REGISTRANTS (RSM/ASM): See Registration Status changes
-    // Since we don't have a "read" status in DB, we show status of registrations for upcoming courses
     const myRegs = registrations.filter(r => r.asmId === user.id);
     const confirmedRegs = myRegs.filter(r => r.status === 'confirmed');
     
@@ -118,13 +125,28 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                 title: 'Đăng Ký Thành Công',
                 message: `Bạn có ${upcoming.length} lớp học sắp tới đã được duyệt tham gia. Nhớ kiểm tra lịch nhé!`,
                 type: 'success',
-                timestamp: new Date()
+                timestamp: new Date(),
+                targetTab: 'registrations' // Or 'calendar'
             });
         }
     }
 
-    setNotifications(newNotifs);
-  }, [courses, registrations, user]);
+    // Filter out manually cleared notifications
+    const visibleNotifs = newNotifs.filter(n => !clearedIds.includes(n.id));
+    setNotifications(visibleNotifs);
+  }, [courses, registrations, user, clearedIds]); // Add clearedIds as dependency
+
+  const handleNotificationClick = (targetTab: string) => {
+      setActiveTab(targetTab);
+      setShowNotifications(false);
+  };
+
+  const handleClearAll = () => {
+      // Add all current notification IDs to the cleared list
+      const allIds = notifications.map(n => n.id);
+      setClearedIds(prev => [...prev, ...allIds]);
+      setNotifications([]); // Visually clear immediately
+  };
 
   return (
     <header className="bg-white border-b border-slate-200 px-4 lg:px-6 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
@@ -157,7 +179,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
             >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                 {notifications.length > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
+                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>
                 )}
             </button>
 
@@ -165,8 +187,15 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
             {showNotifications && (
                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 z-[60] overflow-hidden animate-in slide-in-from-top-2 fade-in duration-200">
                     <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800 text-sm">Thông Báo</h3>
-                        <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">{notifications.length} mới</span>
+                        <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-slate-800 text-sm">Thông Báo</h3>
+                            {notifications.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">{notifications.length} mới</span>}
+                        </div>
+                        {notifications.length > 0 && (
+                            <button onClick={handleClearAll} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded transition-colors">
+                                Đã xem hết
+                            </button>
+                        )}
                     </div>
                     <div className="max-h-[300px] overflow-y-auto">
                         {notifications.length === 0 ? (
@@ -177,7 +206,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                         ) : (
                             <div className="divide-y divide-slate-50">
                                 {notifications.map(notif => (
-                                    <div key={notif.id} className="p-4 hover:bg-slate-50 transition-colors">
+                                    <div 
+                                        key={notif.id} 
+                                        onClick={() => handleNotificationClick(notif.targetTab)}
+                                        className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group"
+                                    >
                                         <div className="flex gap-3">
                                             <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${
                                                 notif.type === 'warning' ? 'bg-amber-500' :
@@ -185,9 +218,15 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout, dbCon
                                                 notif.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
                                             }`}></div>
                                             <div>
-                                                <h4 className="text-xs font-bold text-slate-800 mb-0.5">{notif.title}</h4>
+                                                <div className="flex items-center justify-between mb-0.5">
+                                                    <h4 className="text-xs font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{notif.title}</h4>
+                                                    <span className="text-[10px] text-slate-300 font-medium">Mới</span>
+                                                </div>
                                                 <p className="text-xs text-slate-500 leading-relaxed">{notif.message}</p>
-                                                <p className="text-[10px] text-slate-300 mt-2 font-medium">Vừa cập nhật</p>
+                                                <p className="text-[9px] text-indigo-400 mt-2 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                                    Xem chi tiết 
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                                                </p>
                                             </div>
                                         </div>
                                     </div>

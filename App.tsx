@@ -797,6 +797,7 @@ const App: React.FC = () => {
           dbConnected={dbConnected} 
           courses={courses}
           registrations={registrations}
+          setActiveTab={(tab) => setActiveTab(tab as any)}
       />
       
       {isSyncing && <div className="fixed top-0 left-0 right-0 h-1 bg-indigo-600 animate-pulse z-[60]"></div>}
