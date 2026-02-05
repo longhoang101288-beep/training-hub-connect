@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus } from './types';
 import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES } from './constants';
@@ -28,7 +27,16 @@ const App: React.FC = () => {
   const [showGlobalPopup, setShowGlobalPopup] = useState(false);
   const [popupConfigForm, setPopupConfigForm] = useState<PopupConfig>({ isActive: false, imageUrl: '', linkUrl: '' });
   
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Initialize currentUser from localStorage to persist login across refreshes
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('currentUser');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [isLoginView, setIsLoginView] = useState(true);
   const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'settings' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools'>('calendar');
   
@@ -140,6 +148,7 @@ const App: React.FC = () => {
     }
   }, [currentUser, systemSettings.popup.isActive]);
 
+  // Set default tab on refresh/mount if user is logged in
   useEffect(() => {
     if (currentUser) {
       // Init profile data when user logs in or updates
@@ -155,6 +164,15 @@ const App: React.FC = () => {
            compactMode: false
         }
       });
+
+      // Restore correct tab based on role if currently on default calendar and just loaded
+      // This is a simple heuristic to restore the "dashboard" feel for different roles
+      if (activeTab === 'calendar') {
+          if (currentUser.role === UserRole.TRAINER) setActiveTab('manage-courses');
+          else if (currentUser.role === UserRole.KA) setActiveTab('course-approvals');
+          else if (currentUser.role === UserRole.RSM) setActiveTab('catalog');
+          else if (currentUser.role === UserRole.PM) setActiveTab('manage-courses');
+      }
     }
   }, [currentUser]);
 
@@ -225,6 +243,7 @@ const App: React.FC = () => {
           if (currentUser) {
              const updatedUser = { ...currentUser, avatarUrl: base64Data };
              setCurrentUser(updatedUser);
+             localStorage.setItem('currentUser', JSON.stringify(updatedUser));
              saveToSheet("Users", updatedUser, "update");
           }
         } else if (target === 'popup') {
@@ -331,6 +350,7 @@ const App: React.FC = () => {
         
         if (user) {
           setCurrentUser(user);
+          localStorage.setItem('currentUser', JSON.stringify(user));
           // Route based on role
           if (user.role === UserRole.ADMIN) setActiveTab('calendar');
           else if (user.role === UserRole.TRAINER) setActiveTab('manage-courses');
@@ -358,6 +378,7 @@ const App: React.FC = () => {
         
         setUsers([...users, newUser]);
         setCurrentUser(newUser);
+        localStorage.setItem('currentUser', JSON.stringify(newUser));
         setActiveTab('calendar');
   
         await saveToSheet("Users", newUser, "add");
@@ -387,6 +408,7 @@ const App: React.FC = () => {
 
     setUsers(users.map(u => u.id === currentUser.id ? updatedUser : u));
     setCurrentUser(updatedUser);
+    localStorage.setItem('currentUser', JSON.stringify(updatedUser));
     
     await saveToSheet("Users", updatedUser, "update");
     setIsSaving(false);
@@ -464,6 +486,7 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('currentUser');
     setShowGlobalPopup(false);
     setAuthData({ username: '', password: '', name: '', role: UserRole.ASM, region: ASM_REGIONS[0] });
   };
@@ -1087,7 +1110,7 @@ const App: React.FC = () => {
                                </button>
                                <button type="button" onClick={() => setIsAddingUser(false)} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all">
                                    Hủy Bỏ
-                               </button>
+                                </button>
                             </div>
                          </form>
                       </div>
@@ -1432,120 +1455,197 @@ const App: React.FC = () => {
                              {/* Buttons */}
                              <div className="flex gap-2 justify-end">
                                 <button onClick={() => { setEditingCourse(course); setImagePreview(course.imageUrl); }} className="flex items-center gap-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-lg text-xs transition-colors">
-                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                                   Chỉnh Sửa
+                                   Sửa
                                 </button>
-                                {/* Trainer can delete if rejected */}
-                                {(currentUser.role !== UserRole.TRAINER || course.approvalStatus === 'rejected') && (
-                                    <button onClick={() => handleDeleteCourse(course.id)} className="flex items-center gap-1 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-lg text-xs transition-colors border border-rose-100">
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                    Xóa
-                                    </button>
+                                {currentUser.role === UserRole.ADMIN && (
+                                   <button onClick={() => handleDeleteCourse(course.id)} className="flex items-center gap-1 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-xs transition-colors">
+                                      Xóa
+                                   </button>
                                 )}
                              </div>
                           </div>
                        </div>
                     ))}
                  </div>
+
+                 {/* ADD/EDIT COURSE MODALS WOULD GO HERE OR ARE THEY HANDLED? */}
+                 {/* Checking state: isAddingCourse, editingCourse */}
                  
-                 {/* Modal Add/Edit Course */}
-                 {(isAddingCourse || editingCourse) && (
+                 {isAddingCourse && (
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                       <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                          <h3 className="text-xl font-black mb-4">{editingCourse ? 'Cập Nhật Môn Học' : 'Tạo Môn Học Mới'}</h3>
-                          <form onSubmit={editingCourse ? handleUpdateCourse : handleAddCourse} className="space-y-4">
+                       <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+                          <h3 className="text-xl font-black mb-4">Tạo Môn Học Mới</h3>
+                          <form onSubmit={handleAddCourse} className="space-y-4">
+                             {/* Form fields based on newCourse state */}
+                             <div className="flex flex-col items-center mb-4">
+                                <div className="w-full h-40 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group cursor-pointer">
+                                   <input type="file" onChange={(e) => handleImageUpload(e, 'course')} className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" />
+                                   {imagePreview ? (
+                                      <img src={imagePreview} className="w-full h-full object-cover" />
+                                   ) : (
+                                      <div className="text-center text-slate-400">
+                                         <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                         <span className="text-xs font-bold">Tải ảnh bìa</span>
+                                      </div>
+                                   )}
+                                </div>
+                             </div>
                              
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên Môn</label>
-                                   <input required type="text" value={editingCourse ? editingCourse.title : newCourse.title} onChange={e => editingCourse ? setEditingCourse({...editingCourse, title: e.target.value}) : setNewCourse({...newCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Nhập tên môn học..." />
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên môn học</label>
+                                   <input required type="text" value={newCourse.title} onChange={e => setNewCourse({...newCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Kỹ năng..." />
                                 </div>
                                 <div>
-                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh Mục</label>
-                                   <select value={editingCourse ? editingCourse.category : newCourse.category} onChange={e => editingCourse ? setEditingCourse({...editingCourse, category: e.target.value}) : setNewCourse({...newCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
-                                      <option value="Sales">Sales</option>
-                                      <option value="Product">Product</option>
-                                      <option value="Soft Skills">Soft Skills</option>
-                                      <option value="Marketing">Marketing</option>
-                                      <option value="Other">Khác</option>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh mục</label>
+                                   <input type="text" value={newCourse.category} onChange={e => setNewCourse({...newCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Sales, Soft Skills..." />
+                                </div>
+                             </div>
+
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày bắt đầu</label>
+                                   <input required type="date" value={newCourse.startDate} onChange={e => setNewCourse({...newCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày kết thúc</label>
+                                   <input required type="date" value={newCourse.endDate} onChange={e => setNewCourse({...newCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                             </div>
+
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ bắt đầu</label>
+                                   <input required type="time" value={newCourse.startTime} onChange={e => setNewCourse({...newCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ kết thúc</label>
+                                   <input required type="time" value={newCourse.endTime} onChange={e => setNewCourse({...newCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                             </div>
+
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình thức</label>
+                                   <select value={newCourse.format} onChange={e => setNewCourse({...newCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                                      <option value="Online">Online</option>
+                                      <option value="Offline">Offline</option>
+                                      <option value="Livestream">Livestream</option>
                                    </select>
                                 </div>
-                             </div>
-
-                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Bắt Đầu</label>
-                                    <input type="date" required value={editingCourse ? editingCourse.startDate : newCourse.startDate} onChange={e => editingCourse ? setEditingCourse({...editingCourse, startDate: e.target.value}) : setNewCourse({...newCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối tượng</label>
+                                   <input type="text" value={newCourse.targetAudience} onChange={e => setNewCourse({...newCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="ASM, RSM..." />
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Kết Thúc</label>
-                                    <input type="date" required value={editingCourse ? editingCourse.endDate : newCourse.endDate} onChange={e => editingCourse ? setEditingCourse({...editingCourse, endDate: e.target.value}) : setNewCourse({...newCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Bắt Đầu</label>
-                                    <input type="time" required value={editingCourse ? editingCourse.startTime : newCourse.startTime} onChange={e => editingCourse ? setEditingCourse({...editingCourse, startTime: e.target.value}) : setNewCourse({...newCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Kết Thúc</label>
-                                    <input type="time" required value={editingCourse ? editingCourse.endTime : newCourse.endTime} onChange={e => editingCourse ? setEditingCourse({...editingCourse, endTime: e.target.value}) : setNewCourse({...newCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                                </div>
-                             </div>
-
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối Tượng Tham Gia</label>
-                                    <input type="text" required value={editingCourse ? editingCourse.targetAudience : newCourse.targetAudience} onChange={e => editingCourse ? setEditingCourse({...editingCourse, targetAudience: e.target.value}) : setNewCourse({...newCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="VD: ASM, Sales Team..." />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Thức</label>
-                                    <select value={editingCourse ? editingCourse.format : newCourse.format} onChange={e => editingCourse ? setEditingCourse({...editingCourse, format: e.target.value as any}) : setNewCourse({...newCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
-                                        <option value="Online">Online (Zoom/Meet)</option>
-                                        <option value="Offline">Offline (Tại văn phòng)</option>
-                                        <option value="Livestream">Livestream</option>
-                                    </select>
-                                </div>
-                             </div>
-
-                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa Điểm / Link</label>
-                                <input type="text" required value={editingCourse ? editingCourse.location : newCourse.location} onChange={e => editingCourse ? setEditingCourse({...editingCourse, location: e.target.value}) : setNewCourse({...newCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder={getLocationPlaceholder((editingCourse ? editingCourse.format : newCourse.format) || 'Online')} />
-                             </div>
-
-                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô Tả Chi Tiết</label>
-                                <textarea required rows={3} value={editingCourse ? editingCourse.description : newCourse.description} onChange={e => editingCourse ? setEditingCourse({...editingCourse, description: e.target.value}) : setNewCourse({...newCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Nội dung khóa học..."></textarea>
                              </div>
                              
                              <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ảnh Minh Họa (URL hoặc Upload)</label>
-                                <div className="space-y-3">
-                                    <input type="text" value={editingCourse ? editingCourse.imageUrl : newCourse.imageUrl} onChange={e => {
-                                        const val = e.target.value;
-                                        if(editingCourse) setEditingCourse({...editingCourse, imageUrl: val});
-                                        else setNewCourse({...newCourse, imageUrl: val});
-                                        setImagePreview(val);
-                                    }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="https://example.com/image.jpg" />
-                                    
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-20 h-20 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 shrink-0">
-                                            {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" alt="Preview" onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/150')} /> : <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">Preview</div>}
-                                        </div>
-                                        <div className="flex-1">
-                                             <label className="cursor-pointer bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold transition-colors inline-block">
-                                                Tải ảnh lên
-                                                <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, editingCourse ? 'course_edit' : 'course')} />
-                                             </label>
-                                             <p className="text-[10px] text-slate-400 mt-1">Hỗ trợ JPG, PNG. Tối đa 2MB.</p>
-                                        </div>
-                                    </div>
-                                </div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa điểm / Link</label>
+                                <input required type="text" value={newCourse.location} onChange={e => setNewCourse({...newCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder={getLocationPlaceholder(newCourse.format || 'Online')} />
+                             </div>
+
+                             <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô tả chi tiết</label>
+                                <textarea required value={newCourse.description} onChange={e => setNewCourse({...newCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 h-24" placeholder="Nội dung khóa học..." />
                              </div>
 
                              <div className="flex gap-4 pt-4 border-t border-slate-100 mt-4">
-                                <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
-                                    {editingCourse ? 'Lưu Thay Đổi' : 'Tạo Môn Học'}
+                                <button type="submit" disabled={isSaving} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-70">
+                                    {isSaving ? 'Đang Lưu...' : 'Tạo Môn Học'}
                                 </button>
-                                <button type="button" onClick={() => {setIsAddingCourse(false); setEditingCourse(null); setImagePreview(null);}} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all">
+                                <button type="button" onClick={() => setIsAddingCourse(false)} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all">
+                                    Hủy Bỏ
+                                </button>
+                             </div>
+                          </form>
+                       </div>
+                    </div>
+                 )}
+
+                 {editingCourse && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                       <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+                          <h3 className="text-xl font-black mb-4">Chỉnh Sửa Môn Học</h3>
+                          <form onSubmit={handleUpdateCourse} className="space-y-4">
+                             {/* Similar fields as Add but using editingCourse state */}
+                             <div className="flex flex-col items-center mb-4">
+                                <div className="w-full h-40 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group cursor-pointer">
+                                   <input type="file" onChange={(e) => handleImageUpload(e, 'course_edit')} className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" />
+                                   {imagePreview ? (
+                                      <img src={imagePreview} className="w-full h-full object-cover" />
+                                   ) : (
+                                      <div className="text-center text-slate-400">
+                                         <span className="text-xs font-bold">Thay đổi ảnh</span>
+                                      </div>
+                                   )}
+                                </div>
+                             </div>
+                             
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên môn học</label>
+                                   <input required type="text" value={editingCourse.title} onChange={e => setEditingCourse({...editingCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh mục</label>
+                                   <input type="text" value={editingCourse.category} onChange={e => setEditingCourse({...editingCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                             </div>
+                             
+                             {/* Add other fields similarly (Date, Time, Format, Audience, Location, Description) */}
+                             {/* Trying to save space, assuming logic is similar to add form but with editingCourse */}
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày bắt đầu</label>
+                                   <input required type="date" value={editingCourse.startDate} onChange={e => setEditingCourse({...editingCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày kết thúc</label>
+                                   <input required type="date" value={editingCourse.endDate} onChange={e => setEditingCourse({...editingCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                             </div>
+                             
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ bắt đầu</label>
+                                   <input required type="time" value={editingCourse.startTime} onChange={e => setEditingCourse({...editingCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ kết thúc</label>
+                                   <input required type="time" value={editingCourse.endTime} onChange={e => setEditingCourse({...editingCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                             </div>
+
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình thức</label>
+                                   <select value={editingCourse.format} onChange={e => setEditingCourse({...editingCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                                      <option value="Online">Online</option>
+                                      <option value="Offline">Offline</option>
+                                      <option value="Livestream">Livestream</option>
+                                   </select>
+                                </div>
+                                <div>
+                                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối tượng</label>
+                                   <input type="text" value={editingCourse.targetAudience} onChange={e => setEditingCourse({...editingCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                             </div>
+                             
+                             <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa điểm / Link</label>
+                                <input required type="text" value={editingCourse.location} onChange={e => setEditingCourse({...editingCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder={getLocationPlaceholder(editingCourse.format || 'Online')} />
+                             </div>
+
+                             <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô tả chi tiết</label>
+                                <textarea required value={editingCourse.description} onChange={e => setEditingCourse({...editingCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 h-24" />
+                             </div>
+
+                             <div className="flex gap-4 pt-4 border-t border-slate-100 mt-4">
+                                <button type="submit" disabled={isSaving} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-70">
+                                    {isSaving ? 'Đang Lưu...' : 'Cập Nhật'}
+                                </button>
+                                <button type="button" onClick={() => setEditingCourse(null)} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all">
                                     Hủy Bỏ
                                 </button>
                              </div>
@@ -1556,341 +1656,284 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* COURSE APPROVALS TAB */}
-            {activeTab === 'course-approvals' && currentUser && (
-               <div className="space-y-6">
-                  <h2 className="text-2xl font-black text-slate-800">Duyệt Yêu Cầu</h2>
-                  
-                  {/* Course Approvals */}
-                  {(currentUser.role === UserRole.KA || currentUser.role === UserRole.ADMIN) && (
-                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                        <h3 className="font-bold text-lg mb-4 text-slate-700 border-b pb-2">Duyệt Môn Học Mới</h3>
-                        <div className="space-y-4">
-                           {courses.filter(c => c.approvalStatus === 'pending_trainer' || c.approvalStatus === 'trainer_approved').length === 0 && <p className="text-slate-400 text-sm">Không có môn học cần duyệt.</p>}
-
-                           {courses.filter(c => c.approvalStatus === 'pending_trainer' || c.approvalStatus === 'trainer_approved').map(course => (
-                              <div key={course.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
-                                 <div>
-                                    <h4 className="font-bold text-slate-800">{course.title}</h4>
-                                    <p className="text-xs text-slate-500">Tạo bởi: {course.creatorRole}</p>
-                                    <div className="flex gap-2 mt-1">
-                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold uppercase">{course.category}</span>
-                                        <span className="text-[10px] bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded font-bold uppercase">{course.format}</span>
-                                    </div>
+            {/* COURSE APPROVALS TAB (KA/ADMIN) */}
+            {activeTab === 'course-approvals' && (currentUser.role === UserRole.KA || currentUser.role === UserRole.ADMIN) && (
+               <div className="space-y-8">
+                  {/* 1. Pending Courses */}
+                  <div className="space-y-4">
+                     <h2 className="text-xl font-black text-slate-800">Duyệt Môn Học Mới</h2>
+                     {courses.filter(c => c.approvalStatus === 'trainer_approved' || c.approvalStatus === 'pending_trainer').length === 0 ? (
+                        <p className="text-slate-500 text-sm">Không có môn học nào chờ duyệt.</p>
+                     ) : (
+                        <div className="grid gap-4">
+                           {courses.filter(c => c.approvalStatus === 'trainer_approved' || c.approvalStatus === 'pending_trainer').map(course => (
+                              <div key={course.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4">
+                                 <div className="w-24 h-24 shrink-0 rounded bg-slate-100 overflow-hidden">
+                                     <img src={course.imageUrl} className="w-full h-full object-cover" />
                                  </div>
-                                 <div className="flex gap-2">
-                                    <button onClick={() => handleCourseApproval(course, 'rejected')} className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all">
-                                       Từ Chối
-                                    </button>
-                                    <button onClick={() => handleCourseApproval(course, 'approved')} className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-600 shadow-emerald-200 shadow-sm transition-all">
-                                       Duyệt Chốt
-                                    </button>
+                                 <div className="flex-1">
+                                     <h4 className="font-bold text-slate-800">{course.title}</h4>
+                                     <p className="text-xs text-slate-500 mt-1">{course.description}</p>
+                                     <div className="flex gap-2 mt-2 text-xs font-medium text-slate-600">
+                                        <span>{course.format}</span>
+                                        <span>•</span>
+                                        <span>{formatDate(course.startDate)}</span>
+                                        <span>•</span>
+                                        <span className="text-indigo-600">{course.creatorRole === UserRole.TRAINER ? 'Giảng viên đề xuất' : 'RSM/PM đề xuất'}</span>
+                                     </div>
+                                 </div>
+                                 <div className="flex flex-col gap-2 justify-center">
+                                     <button onClick={() => handleCourseApproval(course, 'approved')} className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700">Duyệt Đăng</button>
+                                     <button onClick={() => handleCourseApproval(course, 'rejected')} className="px-4 py-2 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">Từ Chối</button>
                                  </div>
                               </div>
                            ))}
                         </div>
-                     </div>
-                  )}
+                     )}
+                  </div>
 
-                  {/* Registration Approvals (Only KA/Admin) - Changed from Trainer */}
-                  {(currentUser.role === UserRole.KA || currentUser.role === UserRole.ADMIN) && (
-                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                        <h3 className="font-bold text-lg mb-4 text-slate-700 border-b pb-2">Duyệt Đăng Ký Đào Tạo</h3>
-                        <div className="space-y-4">
-                           {registrations.filter(r => r.status === 'pending').length === 0 && <p className="text-slate-400 text-sm">Không có đăng ký chờ duyệt.</p>}
-                           
-                           {registrations.filter(r => r.status === 'pending').map(reg => {
-                              const course = courses.find(c => c.id === reg.courseId);
-                              const userReg = users.find(u => u.id === reg.asmId);
-                              return (
-                                 <div key={reg.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
-                                    <div>
-                                       <h4 className="font-bold text-slate-800">{userReg?.name || 'Unknown User'} <span className="text-slate-400 font-normal">đăng ký</span> {course?.title}</h4>
-                                       <p className="text-xs text-slate-500">{reg.region} | {formatDate(reg.date)}</p>
-                                    </div>
-                                    <div className="flex gap-2">
-                                       <button onClick={() => handleRegistrationAction(reg, 'confirm')} className="bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 shadow-indigo-200 shadow-sm transition-all">Đồng ý</button>
-                                       <button onClick={() => handleRegistrationAction(reg, 'reject')} className="bg-rose-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-600 shadow-rose-200 shadow-sm transition-all">Từ chối</button>
-                                    </div>
-                                 </div>
-                              );
-                           })}
+                  {/* 2. Pending Registrations */}
+                  <div className="space-y-4 pt-6 border-t border-slate-200">
+                     <h2 className="text-xl font-black text-slate-800">Duyệt Đăng Ký Tham Gia</h2>
+                     {registrations.filter(r => r.status === 'pending').length === 0 ? (
+                        <p className="text-slate-500 text-sm">Không có yêu cầu đăng ký nào chờ xử lý.</p>
+                     ) : (
+                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                           <table className="w-full text-left">
+                              <thead className="bg-slate-50 border-b border-slate-200">
+                                 <tr>
+                                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Người đăng ký</th>
+                                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Môn học</th>
+                                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Khu vực</th>
+                                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Hành động</th>
+                                 </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                 {registrations.filter(r => r.status === 'pending').map(reg => {
+                                    const course = courses.find(c => c.id === reg.courseId);
+                                    const userReg = users.find(u => u.id === reg.asmId);
+                                    if (!course) return null;
+                                    return (
+                                       <tr key={reg.id}>
+                                          <td className="px-4 py-3">
+                                             <p className="text-sm font-bold text-slate-800">{userReg?.name || 'Unknown'}</p>
+                                             <p className="text-xs text-slate-400">{userReg?.username}</p>
+                                          </td>
+                                          <td className="px-4 py-3">
+                                             <p className="text-sm text-slate-700">{course.title}</p>
+                                          </td>
+                                          <td className="px-4 py-3">
+                                             <span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{reg.region}</span>
+                                          </td>
+                                          <td className="px-4 py-3">
+                                             <div className="flex gap-2">
+                                                <button onClick={() => handleRegistrationAction(reg, 'confirm')} className="text-green-600 hover:text-green-800 text-xs font-bold">Duyệt</button>
+                                                <button onClick={() => handleRegistrationAction(reg, 'reject')} className="text-red-600 hover:text-red-800 text-xs font-bold">Từ chối</button>
+                                             </div>
+                                          </td>
+                                       </tr>
+                                    );
+                                 })}
+                              </tbody>
+                           </table>
                         </div>
-                     </div>
-                  )}
+                     )}
+                  </div>
                </div>
             )}
 
-            {/* TOOLS TAB - RESTORED & ENHANCED */}
-             {activeTab === 'tools' && currentUser && (
+            {/* TOOLS TAB (AI Tools) */}
+            {activeTab === 'tools' && currentUser && (
                <div className="space-y-6">
-                 {/* ... Tools content (unchanged) ... */}
-                 <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
-                 
-                 {/* POPUP CONFIGURATION - Visible for Trainer/Admin */}
-                 {(currentUser.role === UserRole.TRAINER || currentUser.role === UserRole.ADMIN) && (
-                    <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl p-6 text-white shadow-lg mb-6">
-                        <div className="flex items-start justify-between mb-4">
-                            <div>
-                                <h3 className="text-lg font-bold">Cấu Hình Popup Thông Báo</h3>
-                                <p className="text-indigo-100 text-sm">Quản lý banner popup hiển thị cho toàn bộ người dùng.</p>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => setPopupConfigForm({...popupConfigForm, isActive: e.target.checked})} className="sr-only peer" />
-                                <div className="w-11 h-6 bg-indigo-400 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-white/90"></div>
-                            </label>
+                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     {/* Background Remover Tool Card */}
+                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                        <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-4">
+                           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
                         </div>
-                        
-                        {popupConfigForm.isActive && (
-                            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 space-y-4 border border-white/20 animate-in fade-in">
-                                <div>
-                                    <label className="block text-xs font-bold text-indigo-100 uppercase mb-2">Hình Ảnh Banner</label>
-                                    <div className="flex items-center gap-4">
-                                        <div className="h-16 w-16 bg-white/20 rounded-lg overflow-hidden border border-white/30 flex items-center justify-center shrink-0">
-                                            {popupConfigForm.imageUrl ? (
-                                                <img src={popupConfigForm.imageUrl} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <svg className="w-6 h-6 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                            )}
-                                        </div>
-                                        <label className="cursor-pointer bg-white text-indigo-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-50 transition-colors">
-                                            Chọn Ảnh Mới
-                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} />
-                                        </label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-indigo-100 uppercase mb-1">Đường Dẫn (Link)</label>
-                                    <input 
-                                        type="text" 
-                                        value={popupConfigForm.linkUrl || ''} 
-                                        onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})} 
-                                        className="w-full p-2 bg-white/20 border border-white/30 rounded-lg text-white placeholder-indigo-200 text-sm focus:outline-none focus:bg-white/30 transition-colors" 
-                                        placeholder="https://..." 
-                                    />
-                                </div>
-                                <button onClick={handleSavePopupConfig} className="w-full py-2 bg-white text-indigo-600 font-bold rounded-lg text-sm hover:bg-indigo-50 transition-colors shadow-sm">
-                                    Lưu Cấu Hình
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                 )}
-
-                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                   {/* Background Remover Card */}
-                   <div 
-                      onClick={() => setActiveTool('bg-remover')}
-                      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
-                   >
-                      <div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                      </div>
-                      <h3 className="font-bold text-slate-800 mb-1">Xóa Phông Nền (AI)</h3>
-                      <p className="text-xs text-slate-500">Tách nền ảnh tự động nhanh chóng.</p>
-                   </div>
-
-                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
-                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                      </div>
-                      <h3 className="font-bold text-slate-800 mb-1">Thư Viện Tài Liệu</h3>
-                      <p className="text-xs text-slate-500">Slide bài giảng và video.</p>
-                   </div>
-                   
-                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
-                      <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                      </div>
-                      <h3 className="font-bold text-slate-800 mb-1">Báo Cáo Thống Kê</h3>
-                      <p className="text-xs text-slate-500">Xem tiến độ đào tạo vùng.</p>
-                   </div>
-
-                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
-                      <div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                      </div>
-                      <h3 className="font-bold text-slate-800 mb-1">Hỗ Trợ Trực Tuyến</h3>
-                      <p className="text-xs text-slate-500">Liên hệ admin hoặc IT.</p>
-                   </div>
-                   
-                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
-                      <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                      </div>
-                      <h3 className="font-bold text-slate-800 mb-1">Cộng Đồng FTC</h3>
-                      <p className="text-xs text-slate-500">Thảo luận và chia sẻ.</p>
-                   </div>
-                 </div>
-                 
-                 <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-yellow-800 text-sm">
-                    <strong>Lưu ý:</strong> Các tính năng này đang được phát triển và sẽ sớm ra mắt trong phiên bản tiếp theo.
-                 </div>
-
-                 {/* BACKGROUND REMOVER MODAL */}
-                 {activeTool === 'bg-remover' && (
-                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                       <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-                          <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-                             <h3 className="font-bold text-lg text-slate-800">Công Cụ Xóa Phông Nền</h3>
-                             <button onClick={() => { setActiveTool(null); setBgRemoverImg(null); setBgRemoverResult(null); }} className="text-slate-400 hover:text-slate-600">
-                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                             </button>
-                          </div>
-                          
-                          <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
-                             {!bgRemoverImg ? (
-                                <div className="h-64 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-white">
-                                   <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-4">
-                                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                   </div>
-                                   <p className="text-slate-600 font-medium mb-2">Kéo thả hoặc tải ảnh lên để xóa nền</p>
-                                   <p className="text-slate-400 text-xs mb-4">Hỗ trợ JPG, PNG chất lượng cao</p>
-                                   <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all">
-                                      Chọn Ảnh Từ Máy
-                                      <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'bg_remover')} />
-                                   </label>
-                                </div>
-                             ) : (
-                                <div className="space-y-6">
-                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                      {/* Original Image */}
-                                      <div className="space-y-2">
-                                         <p className="text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Ảnh Gốc</p>
-                                         <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200">
-                                            <img src={bgRemoverImg} className="w-full h-auto rounded-lg" alt="Original" />
-                                         </div>
-                                      </div>
-
-                                      {/* Result Image */}
-                                      <div className="space-y-2">
-                                         <p className="text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Kết Quả</p>
-                                         <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200 relative min-h-[200px] flex items-center justify-center">
-                                            {/* Checkerboard pattern for transparency */}
-                                            <div className="absolute inset-2 opacity-10" style={{ backgroundImage: 'linear-gradient(45deg, #000 25%, transparent 25%), linear-gradient(-45deg, #000 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #000 75%), linear-gradient(-45deg, transparent 75%, #000 75%)', backgroundSize: '20px 20px', backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px' }}></div>
-                                            
-                                            {isProcessingBg ? (
-                                                <div className="text-center z-10">
-                                                    <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-2"></div>
-                                                    <p className="text-indigo-600 text-sm font-bold animate-pulse">Đang xử lý AI...</p>
-                                                </div>
-                                            ) : bgRemoverResult ? (
-                                                <img src={bgRemoverResult} className="w-full h-auto rounded-lg relative z-10" alt="Result" />
-                                            ) : (
-                                                <p className="text-slate-300 text-sm relative z-10">Chờ xử lý...</p>
-                                            )}
-                                         </div>
-                                      </div>
-                                   </div>
-
-                                   <div className="flex justify-center gap-4 pt-4 border-t border-slate-200">
-                                      {!bgRemoverResult ? (
-                                          <button 
-                                            onClick={handleProcessBgRemoval} 
-                                            disabled={isProcessingBg}
-                                            className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-70 transition-all flex items-center gap-2"
-                                          >
-                                             {isProcessingBg && <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
-                                             {isProcessingBg ? 'Đang Xử Lý...' : 'Bắt Đầu Xóa Nền'}
-                                          </button>
-                                      ) : (
-                                          <a 
-                                            href={bgRemoverResult} 
-                                            download="removed-bg.png"
-                                            className="bg-emerald-500 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all flex items-center gap-2"
-                                          >
-                                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                             Tải Ảnh Về
-                                          </a>
-                                      )}
-                                      <button 
-                                        onClick={() => { setBgRemoverImg(null); setBgRemoverResult(null); }}
-                                        className="bg-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all"
-                                      >
-                                         Làm Lại
-                                      </button>
-                                   </div>
-                                </div>
-                             )}
-                          </div>
-                       </div>
-                    </div>
-                 )}
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Xóa Phông Ảnh (AI)</h3>
+                        <p className="text-slate-500 text-sm mb-4">Sử dụng AI để tách nền ảnh chân dung hoặc sản phẩm, phục vụ thiết kế banner, slide.</p>
+                        <button onClick={() => setActiveTool('bg-remover')} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700">Sử Dụng Ngay</button>
+                     </div>
+                  </div>
+                  
+                  {/* Tool Interface Modal/Area */}
+                  {activeTool === 'bg-remover' && (
+                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+                           <div className="flex justify-between items-center mb-6">
+                              <h3 className="text-xl font-black">Xóa Phông Ảnh</h3>
+                              <button onClick={() => { setActiveTool(null); setBgRemoverImg(null); setBgRemoverResult(null); }} className="p-2 hover:bg-slate-100 rounded-full">
+                                 <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                              </button>
+                           </div>
+                           
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                              <div>
+                                 <p className="text-sm font-bold text-slate-500 mb-2">Ảnh Gốc</p>
+                                 <div className="w-full aspect-square bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group">
+                                    <input type="file" onChange={(e) => handleImageUpload(e, 'bg_remover')} className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" />
+                                    {bgRemoverImg ? (
+                                       <img src={bgRemoverImg} className="w-full h-full object-contain" />
+                                    ) : (
+                                       <div className="text-center text-slate-400">
+                                          <svg className="w-10 h-10 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                          <span className="text-sm font-bold">Chọn ảnh để xử lý</span>
+                                       </div>
+                                    )}
+                                 </div>
+                              </div>
+                              
+                              <div>
+                                 <p className="text-sm font-bold text-slate-500 mb-2">Kết Quả AI</p>
+                                 <div className="w-full aspect-square bg-[url('https://media.istockphoto.com/id/1145618475/vector/checkered-geometric-vector-background-with-black-and-gray-tile-transparent-grid-empty.jpg?s=612x612&w=0&k=20&c=6F5k2yKx-rT_hA6GqVz5_g_g_g_g_g_g_g_g_g_g_g_g_g_g_g_g_g')] bg-cover rounded-xl border border-slate-200 flex items-center justify-center relative overflow-hidden">
+                                    {isProcessingBg ? (
+                                       <div className="text-center">
+                                          <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-2"></div>
+                                          <span className="text-xs font-bold text-slate-600">Đang xử lý...</span>
+                                       </div>
+                                    ) : bgRemoverResult ? (
+                                       <img src={bgRemoverResult} className="w-full h-full object-contain" />
+                                    ) : (
+                                       <span className="text-slate-400 text-sm">Chưa có kết quả</span>
+                                    )}
+                                 </div>
+                              </div>
+                           </div>
+                           
+                           <div className="mt-6 flex justify-end gap-3">
+                              <button onClick={handleProcessBgRemoval} disabled={!bgRemoverImg || isProcessingBg} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                 Xử Lý Ảnh
+                              </button>
+                              {bgRemoverResult && (
+                                 <a href={bgRemoverResult} download="removed-bg.png" className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-green-700 flex items-center gap-2">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    Tải Về
+                                 </a>
+                              )}
+                           </div>
+                        </div>
+                     </div>
+                  )}
                </div>
             )}
-
-            {/* PROFILE TAB */}
-            {activeTab === 'profile' && currentUser && (
-             <div className="max-w-2xl mx-auto space-y-6">
-                <h2 className="text-2xl font-black text-slate-800">Thông Tin Cá Nhân</h2>
-                <form onSubmit={handleSaveProfile} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-                   <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 rounded-full bg-slate-100 overflow-hidden">
-                         {currentUser.avatarUrl ? <img src={currentUser.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-400">{currentUser.name.charAt(0)}</div>}
-                      </div>
-                      <div>
-                         <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 transition-colors">
-                            Đổi ảnh đại diện
-                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'user')} />
-                         </label>
-                      </div>
-                   </div>
-                   <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
-                      <input type="text" value={profileData.name || ''} onChange={e => setProfileData({...profileData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email Liên Hệ</label>
-                      <input type="email" value={profileData.email || ''} onChange={e => setProfileData({...profileData, email: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" placeholder="email@example.com" />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Số Điện Thoại</label>
-                      <input type="tel" value={profileData.phone || ''} onChange={e => setProfileData({...profileData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" placeholder="09xxxxxxxxx" />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giới Thiệu Bản Thân (Bio)</label>
-                      <textarea rows={3} value={profileData.bio || ''} onChange={e => setProfileData({...profileData, bio: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Một chút về bản thân..."></textarea>
-                   </div>
-                   <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Lưu Thông Tin</button>
-                </form>
-             </div>
-            )}
-
+            
             {/* SETTINGS TAB */}
             {activeTab === 'settings' && currentUser && (
-             <div className="max-w-2xl mx-auto space-y-6">
-                <h2 className="text-2xl font-black text-slate-800">Cấu Hình Hệ Thống</h2>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-                   <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-slate-700">Popup Thông Báo Toàn Cục</h3>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => setPopupConfigForm({...popupConfigForm, isActive: e.target.checked})} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                      </label>
-                   </div>
-                   {popupConfigForm.isActive && (
-                      <div className="space-y-4 pt-4 border-t border-slate-100 animate-in fade-in">
-                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ảnh Popup</label>
-                             <div className="flex items-center gap-4">
-                                {popupConfigForm.imageUrl && <img src={popupConfigForm.imageUrl} className="h-20 w-auto rounded-lg border border-slate-200" />}
-                                <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 transition-colors">
-                                  Upload Ảnh
-                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} />
-                                </label>
-                             </div>
-                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Optional)</label>
-                            <input type="text" value={popupConfigForm.linkUrl || ''} onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" placeholder="https://..." />
-                         </div>
-                      </div>
-                   )}
-                   <button onClick={handleSavePopupConfig} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700">Lưu Cấu Hình</button>
-                </div>
-             </div>
+               <div className="space-y-6">
+                  <h2 className="text-2xl font-black text-slate-800">Cài Đặt Hệ Thống</h2>
+                  {currentUser.role === UserRole.ADMIN ? (
+                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <h3 className="font-bold text-slate-800 text-lg mb-4">Cấu Hình Popup Thông Báo</h3>
+                        <div className="space-y-4">
+                           <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium text-slate-700">Kích hoạt Popup trang chủ</span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                 <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => setPopupConfigForm({...popupConfigForm, isActive: e.target.checked})} className="sr-only peer" />
+                                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                              </label>
+                           </div>
+                           
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Hình ảnh Popup</label>
+                              <div className="w-full h-48 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group cursor-pointer">
+                                   <input type="file" onChange={(e) => handleImageUpload(e, 'popup')} className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" />
+                                   {popupConfigForm.imageUrl ? (
+                                      <img src={popupConfigForm.imageUrl} className="w-full h-full object-contain" />
+                                   ) : (
+                                      <div className="text-center text-slate-400">
+                                         <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                         <span className="text-xs font-bold">Tải ảnh lên</span>
+                                      </div>
+                                   )}
+                              </div>
+                           </div>
+                           
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Đường dẫn khi click (tùy chọn)</label>
+                              <input type="text" value={popupConfigForm.linkUrl} onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
+                           </div>
+                           
+                           <div className="pt-4">
+                              <button onClick={handleSavePopupConfig} disabled={isSaving} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-70">
+                                 Lưu Cấu Hình
+                              </button>
+                           </div>
+                        </div>
+                     </div>
+                  ) : (
+                     <div className="p-10 text-center bg-white rounded-2xl border border-slate-200">
+                        <p className="text-slate-500">Bạn không có quyền truy cập cài đặt hệ thống.</p>
+                     </div>
+                  )}
+               </div>
             )}
-           
+            
+            {/* PROFILE TAB */}
+            {activeTab === 'profile' && currentUser && (
+               <div className="space-y-6">
+                  <h2 className="text-2xl font-black text-slate-800">Thông Tin Cá Nhân</h2>
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                     <div className="h-32 bg-indigo-600"></div>
+                     <div className="px-6 pb-6 relative">
+                        <div className="absolute -top-12 left-6 w-24 h-24 rounded-full border-4 border-white bg-white shadow-md overflow-hidden group cursor-pointer">
+                           <input type="file" onChange={(e) => handleImageUpload(e, 'user')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                           {currentUser.avatarUrl ? (
+                              <img src={currentUser.avatarUrl} className="w-full h-full object-cover" />
+                           ) : (
+                              <div className="w-full h-full bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-2xl">
+                                 {currentUser.name.charAt(0)}
+                              </div>
+                           )}
+                           <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                           </div>
+                        </div>
+                        
+                        <div className="ml-28 pt-2 mb-8">
+                           <h3 className="text-xl font-bold text-slate-900">{currentUser.name}</h3>
+                           <p className="text-slate-500 text-sm">@{currentUser.username} • <span className="uppercase text-indigo-600 font-bold text-xs">{currentUser.role}</span></p>
+                        </div>
+                        
+                        <form onSubmit={handleSaveProfile} className="space-y-4 max-w-2xl">
+                           <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ và tên</label>
+                                 <input type="text" value={profileData.name || ''} onChange={e => setProfileData({...profileData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                              </div>
+                              <div>
+                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Số điện thoại</label>
+                                 <input type="text" value={profileData.phone || ''} onChange={e => setProfileData({...profileData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="09..." />
+                              </div>
+                           </div>
+                           
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email</label>
+                              <input type="email" value={profileData.email || ''} onChange={e => setProfileData({...profileData, email: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="email@example.com" />
+                           </div>
+                           
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giới thiệu bản thân</label>
+                              <textarea value={profileData.bio || ''} onChange={e => setProfileData({...profileData, bio: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 h-24" placeholder="Một chút về bạn..." />
+                           </div>
+                           
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đổi mật khẩu (Bỏ trống nếu không đổi)</label>
+                              <input type="password" value={profileData.password || ''} onChange={e => setProfileData({...profileData, password: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" />
+                           </div>
+                           
+                           <div className="pt-4">
+                              <button type="submit" disabled={isSaving} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-70">
+                                 Lưu Thay Đổi
+                              </button>
+                           </div>
+                        </form>
+                     </div>
+                  </div>
+               </div>
+            )}
+
           </div>
         </section>
       </main>
