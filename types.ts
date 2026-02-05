@@ -64,3 +64,20 @@ export interface PopupConfig {
 export interface SystemSettings {
   popup: PopupConfig;
 }
+
+// Updated based on user request
+export interface AttendanceRecord {
+  id: string; // ID
+  date: string; // Ngày
+  checkIn: string; // Check in
+  checkOut: string; // Check out
+  courseName: string; // Môn học
+  fullName: string; // Họ và Tên
+  insideId: string; // Inside
+  shopAddress: string; // Địa chỉ shop làm việc
+  email: string; // Email
+  asm: string; // ASM
+  asmEmail: string; // Email ASM
+  feedback: string; // Feedback
+  rating?: number; // Optional: Keep for CSAT calculation if needed, otherwise derived from feedback or kept hidden
+}
