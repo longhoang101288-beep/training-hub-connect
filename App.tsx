@@ -81,6 +81,12 @@ const App: React.FC = () => {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
+  // --- TOOL STATES (BG REMOVER) ---
+  const [activeTool, setActiveTool] = useState<'bg-remover' | null>(null);
+  const [bgRemoverImg, setBgRemoverImg] = useState<string | null>(null);
+  const [bgRemoverResult, setBgRemoverResult] = useState<string | null>(null);
+  const [isProcessingBg, setIsProcessingBg] = useState(false);
+
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
     if (isBackground && !isPollingAllowed.current) return;
@@ -180,7 +186,7 @@ const App: React.FC = () => {
     return timeString;
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'course' | 'user' | 'course_edit' | 'popup') => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'course' | 'user' | 'course_edit' | 'popup' | 'bg_remover') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -195,7 +201,7 @@ const App: React.FC = () => {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const MAX_WIDTH = target === 'popup' ? 800 : 400; // Allow bigger image for popup
+        const MAX_WIDTH = target === 'popup' ? 800 : target === 'bg_remover' ? 1024 : 400; 
         let width = img.width;
         let height = img.height;
 
@@ -207,7 +213,7 @@ const App: React.FC = () => {
         canvas.width = width;
         canvas.height = height;
         ctx?.drawImage(img, 0, 0, width, height);
-        const base64Data = canvas.toDataURL('image/jpeg', target === 'popup' ? 0.8 : 0.7);
+        const base64Data = canvas.toDataURL('image/png', target === 'popup' || target === 'bg_remover' ? 0.9 : 0.7);
         
         if (target === 'course') {
           setNewCourse(prev => ({ ...prev, imageUrl: base64Data }));
@@ -223,11 +229,28 @@ const App: React.FC = () => {
           }
         } else if (target === 'popup') {
           setPopupConfigForm(prev => ({ ...prev, imageUrl: base64Data }));
+        } else if (target === 'bg_remover') {
+          setBgRemoverImg(base64Data);
+          setBgRemoverResult(null); // Reset result
         }
       };
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleProcessBgRemoval = async () => {
+      if (!bgRemoverImg) return;
+      setIsProcessingBg(true);
+      
+      // SIMULATION: In a real app, this would send 'bgRemoverImg' to an API (e.g., remove.bg or custom backend)
+      // Since we are client-side only for this demo, we will simulate the process delay.
+      await delay(2500); 
+      
+      // For demo purposes, we just return the original image but set it as "result" 
+      // In a real integration, 'bgRemoverResult' would be the transparent PNG URL.
+      setBgRemoverResult(bgRemoverImg);
+      setIsProcessingBg(false);
   };
 
   const getLocationPlaceholder = (fmt: string) => {
@@ -1138,6 +1161,7 @@ const App: React.FC = () => {
             {/* CATALOG TAB (RSM Registration) */}
             {activeTab === 'catalog' && currentUser && (
               <div className="space-y-6 pb-24 md:pb-0">
+                 {/* ... Catalog Content ... */}
                  <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800">Đăng Ký Đào Tạo</h2>
                  </div>
@@ -1336,6 +1360,7 @@ const App: React.FC = () => {
             {/* MANAGE COURSES TAB */}
             {activeTab === 'manage-courses' && currentUser && (
               <div className="space-y-6">
+                 {/* ... Manage Courses Content (Unchanged) ... */}
                  <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black text-slate-800">Quản Lý Môn Học</h2>
                     <button onClick={() => setIsAddingCourse(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700">
@@ -1648,6 +1673,18 @@ const App: React.FC = () => {
                  )}
 
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                   {/* Background Remover Card */}
+                   <div 
+                      onClick={() => setActiveTool('bg-remover')}
+                      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
+                   >
+                      <div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                      </div>
+                      <h3 className="font-bold text-slate-800 mb-1">Xóa Phông Nền (AI)</h3>
+                      <p className="text-xs text-slate-500">Tách nền ảnh tự động nhanh chóng.</p>
+                   </div>
+
                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
                       <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
@@ -1684,6 +1721,96 @@ const App: React.FC = () => {
                  <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-yellow-800 text-sm">
                     <strong>Lưu ý:</strong> Các tính năng này đang được phát triển và sẽ sớm ra mắt trong phiên bản tiếp theo.
                  </div>
+
+                 {/* BACKGROUND REMOVER MODAL */}
+                 {activeTool === 'bg-remover' && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                       <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+                          <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                             <h3 className="font-bold text-lg text-slate-800">Công Cụ Xóa Phông Nền</h3>
+                             <button onClick={() => { setActiveTool(null); setBgRemoverImg(null); setBgRemoverResult(null); }} className="text-slate-400 hover:text-slate-600">
+                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                             </button>
+                          </div>
+                          
+                          <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+                             {!bgRemoverImg ? (
+                                <div className="h-64 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-white">
+                                   <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-4">
+                                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                   </div>
+                                   <p className="text-slate-600 font-medium mb-2">Kéo thả hoặc tải ảnh lên để xóa nền</p>
+                                   <p className="text-slate-400 text-xs mb-4">Hỗ trợ JPG, PNG chất lượng cao</p>
+                                   <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all">
+                                      Chọn Ảnh Từ Máy
+                                      <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'bg_remover')} />
+                                   </label>
+                                </div>
+                             ) : (
+                                <div className="space-y-6">
+                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                      {/* Original Image */}
+                                      <div className="space-y-2">
+                                         <p className="text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Ảnh Gốc</p>
+                                         <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                                            <img src={bgRemoverImg} className="w-full h-auto rounded-lg" alt="Original" />
+                                         </div>
+                                      </div>
+
+                                      {/* Result Image */}
+                                      <div className="space-y-2">
+                                         <p className="text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Kết Quả</p>
+                                         <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200 relative min-h-[200px] flex items-center justify-center">
+                                            {/* Checkerboard pattern for transparency */}
+                                            <div className="absolute inset-2 opacity-10" style={{ backgroundImage: 'linear-gradient(45deg, #000 25%, transparent 25%), linear-gradient(-45deg, #000 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #000 75%), linear-gradient(-45deg, transparent 75%, #000 75%)', backgroundSize: '20px 20px', backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px' }}></div>
+                                            
+                                            {isProcessingBg ? (
+                                                <div className="text-center z-10">
+                                                    <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-2"></div>
+                                                    <p className="text-indigo-600 text-sm font-bold animate-pulse">Đang xử lý AI...</p>
+                                                </div>
+                                            ) : bgRemoverResult ? (
+                                                <img src={bgRemoverResult} className="w-full h-auto rounded-lg relative z-10" alt="Result" />
+                                            ) : (
+                                                <p className="text-slate-300 text-sm relative z-10">Chờ xử lý...</p>
+                                            )}
+                                         </div>
+                                      </div>
+                                   </div>
+
+                                   <div className="flex justify-center gap-4 pt-4 border-t border-slate-200">
+                                      {!bgRemoverResult ? (
+                                          <button 
+                                            onClick={handleProcessBgRemoval} 
+                                            disabled={isProcessingBg}
+                                            className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-70 transition-all flex items-center gap-2"
+                                          >
+                                             {isProcessingBg && <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
+                                             {isProcessingBg ? 'Đang Xử Lý...' : 'Bắt Đầu Xóa Nền'}
+                                          </button>
+                                      ) : (
+                                          <a 
+                                            href={bgRemoverResult} 
+                                            download="removed-bg.png"
+                                            className="bg-emerald-500 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all flex items-center gap-2"
+                                          >
+                                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                             Tải Ảnh Về
+                                          </a>
+                                      )}
+                                      <button 
+                                        onClick={() => { setBgRemoverImg(null); setBgRemoverResult(null); }}
+                                        className="bg-slate-100 text-slate-600 px-6 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                                      >
+                                         Làm Lại
+                                      </button>
+                                   </div>
+                                </div>
+                             )}
+                          </div>
+                       </div>
+                    </div>
+                 )}
                </div>
             )}
 
