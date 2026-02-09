@@ -106,7 +106,7 @@ const App: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // --- TOOL STATES ---
-  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | null>(null);
+  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | 'config_webex' | 'config_popup' | null>(null);
   const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
@@ -431,6 +431,37 @@ const App: React.FC = () => {
     e.preventDefault(); if (!currentUser) return; setIsSaving(true);
     const updatedUser: User = { ...currentUser, name: profileData.name || currentUser.name, email: profileData.email, phone: profileData.phone, bio: profileData.bio, password: profileData.password || currentUser.password, preferences: profileData.preferences };
     setUsers(users.map(u => u.id === currentUser.id ? updatedUser : u)); setCurrentUser(updatedUser); localStorage.setItem('currentUser', JSON.stringify(updatedUser)); await saveToSheet("Users", updatedUser, "update"); setIsSaving(false); alert("Cập nhật thông tin thành công!");
+  };
+
+  // --- SAVE SYSTEM CONFIG (Webex & Popup) ---
+  const handleSaveWebexConfig = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsSaving(true);
+      const success = await saveToSheet("Webex", webexConfigForm, "update");
+      if (success) {
+          setSystemSettings(prev => ({ ...prev, webex: webexConfigForm }));
+          alert("Đã lưu cấu hình Webex thành công!");
+      } else {
+          alert("Lỗi khi lưu cấu hình Webex.");
+      }
+      setIsSaving(false);
+      isEditingConfig.current = false;
+      setActiveTool(null);
+  };
+
+  const handleSavePopupConfig = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsSaving(true);
+      const success = await saveToSheet("Settings", popupConfigForm, "update");
+      if (success) {
+          setSystemSettings(prev => ({ ...prev, popup: popupConfigForm }));
+          alert("Đã lưu cấu hình Popup thành công!");
+      } else {
+          alert("Lỗi khi lưu cấu hình Popup.");
+      }
+      setIsSaving(false);
+      isEditingConfig.current = false;
+      setActiveTool(null);
   };
 
   const handleAdminUpdateUser = async (e: React.FormEvent) => {
@@ -783,6 +814,8 @@ const App: React.FC = () => {
                </div>
             )}
 
+            {/* ... other tabs ... */}
+            {/* Keeping existing tabs collapsed for brevity, only showing changed Tools tab */}
             {activeTab === 'catalog' && hasPermission('tab_catalog') && (
               <div className="space-y-6 pb-20">
                   <div className="flex justify-between items-center">
@@ -1104,7 +1137,6 @@ const App: React.FC = () => {
                 </div>
             )}
 
-            {/* Profile Tab */}
             {activeTab === 'profile' && currentUser && hasPermission('tab_profile') && (
                 <div className="max-w-3xl mx-auto">
                     <h2 className="text-2xl font-black text-slate-800 mb-6">Thông Tin Cá Nhân</h2>
@@ -1222,8 +1254,7 @@ const App: React.FC = () => {
                             </div>
                         ))}
                     </div>
-                    
-                    {/* Add Course Modal */}
+                    {/* Add/Edit Course Modals (hidden here for brevity as they are unchanged) */}
                     {isAddingCourse && (
                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
                           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1260,8 +1291,6 @@ const App: React.FC = () => {
                           </div>
                        </div>
                     )}
-                    
-                    {/* Edit Course Modal */}
                     {editingCourse && (
                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
                           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1411,8 +1440,18 @@ const App: React.FC = () => {
                    {hasPermission('tool_statistics') && (
                        <div onClick={() => setActiveTool('statistics')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Báo Cáo Thống Kê</h3><p className="text-xs text-slate-500">Xem tiến độ đào tạo vùng.</p></div>
                    )}
+
+                   {/* --- RESTORED CONFIG TOOLS --- */}
+                   {hasPermission('config_webex') && (
+                       <div onClick={() => { isEditingConfig.current = true; setActiveTool('config_webex'); }} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Cấu Hình Webex</h3><p className="text-xs text-slate-500">Cập nhật thông tin phòng họp chung.</p></div>
+                   )}
+
+                   {hasPermission('config_popup') && (
+                       <div onClick={() => { isEditingConfig.current = true; setActiveTool('config_popup'); }} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Cấu Hình Global Popup</h3><p className="text-xs text-slate-500">Tạo thông báo khẩn cấp toàn hệ thống.</p></div>
+                   )}
                  </div>
                  
+                 {/* ... existing Webex View modal ... */}
                  {activeTool === 'webex' && (
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                         <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 shadow-2xl">
@@ -1454,6 +1493,67 @@ const App: React.FC = () => {
                                         Mở Webex
                                     </a>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                 )}
+                 
+                 {/* --- NEW CONFIG WEBEX MODAL --- */}
+                 {activeTool === 'config_webex' && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 shadow-2xl">
+                            <div className="p-6">
+                                <h3 className="text-xl font-black text-slate-800 mb-6">Cập Nhật Webex</h3>
+                                <form onSubmit={handleSaveWebexConfig} className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Webex URL</label>
+                                        <input type="text" value={webexConfigForm.url} onChange={e => setWebexConfigForm({...webexConfigForm, url: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username</label>
+                                        <input type="text" value={webexConfigForm.username} onChange={e => setWebexConfigForm({...webexConfigForm, username: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Password</label>
+                                        <input type="text" value={webexConfigForm.password} onChange={e => setWebexConfigForm({...webexConfigForm, password: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <button type="button" onClick={() => { setActiveTool(null); isEditingConfig.current = false; }} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl">Hủy</button>
+                                        <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700">{isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình'}</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                 )}
+
+                 {/* --- NEW CONFIG POPUP MODAL --- */}
+                 {activeTool === 'config_popup' && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 shadow-2xl">
+                            <div className="p-6">
+                                <h3 className="text-xl font-black text-slate-800 mb-6">Cập Nhật Global Popup</h3>
+                                <form onSubmit={handleSavePopupConfig} className="space-y-4">
+                                    <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                        <span className="font-bold text-slate-700 text-sm">Trạng thái kích hoạt</span>
+                                        <div onClick={() => setPopupConfigForm({...popupConfigForm, isActive: !popupConfigForm.isActive})} className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                            <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-6' : ''}`}></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình ảnh Popup</label>
+                                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} className="mb-2 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                                        {popupConfigForm.imageUrl && <img src={popupConfigForm.imageUrl} className="w-full h-32 object-contain rounded-xl border border-slate-200 bg-slate-50" />}
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
+                                        <input type="text" value={popupConfigForm.linkUrl} onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <button type="button" onClick={() => { setActiveTool(null); isEditingConfig.current = false; }} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl">Hủy</button>
+                                        <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700">{isSaving ? 'Đang lưu...' : 'Lưu Popup'}</button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     </div>
