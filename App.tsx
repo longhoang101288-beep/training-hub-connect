@@ -5,7 +5,7 @@ import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES } from './con
 import DashboardHeader from './components/DashboardHeader';
 import CourseCalendar from './components/CourseCalendar';
 import BottomNavigation from './components/BottomNavigation';
-import { generateTrainingPlanSummary } from './services/geminiService';
+import { generateTrainingPlanSummary, generateImageWithGemini } from './services/geminiService';
 import { fetchAllData, saveToSheet, seedDatabase } from './services/googleSheetService';
 import * as XLSX from 'xlsx';
 
@@ -99,12 +99,18 @@ const App: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // --- TOOL STATES ---
-  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | null>(null);
+  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | 'ai-studio' | null>(null);
   const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showWebexPassword, setShowWebexPassword] = useState(false);
+
+  // AI STUDIO STATE
+  const [aiStudioPrompt, setAiStudioPrompt] = useState('');
+  const [aiStudioInputImage, setAiStudioInputImage] = useState<string | null>(null);
+  const [aiStudioOutputImage, setAiStudioOutputImage] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
@@ -230,7 +236,7 @@ const App: React.FC = () => {
     return timeString;
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'course' | 'user' | 'course_edit' | 'popup') => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'course' | 'user' | 'course_edit' | 'popup' | 'ai_input') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -249,7 +255,7 @@ const App: React.FC = () => {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const MAX_WIDTH = target === 'popup' ? 800 : 400; 
+        const MAX_WIDTH = target === 'popup' ? 800 : target === 'ai_input' ? 1024 : 400; 
         let width = img.width;
         let height = img.height;
 
@@ -261,7 +267,7 @@ const App: React.FC = () => {
         canvas.width = width;
         canvas.height = height;
         ctx?.drawImage(img, 0, 0, width, height);
-        const base64Data = canvas.toDataURL('image/png', target === 'popup' ? 0.9 : 0.7);
+        const base64Data = canvas.toDataURL('image/png', target === 'popup' || target === 'ai_input' ? 0.9 : 0.7);
         
         if (target === 'course') {
           setNewCourse(prev => ({ ...prev, imageUrl: base64Data }));
@@ -278,11 +284,44 @@ const App: React.FC = () => {
           }
         } else if (target === 'popup') {
           setPopupConfigForm(prev => ({ ...prev, imageUrl: base64Data }));
+        } else if (target === 'ai_input') {
+          setAiStudioInputImage(base64Data);
         }
       };
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  // --- AI STUDIO ACTION ---
+  const handleGenerateImage = async () => {
+      if (!aiStudioPrompt) {
+          alert("Vui lòng nhập mô tả cho ảnh!");
+          return;
+      }
+      if (!process.env.API_KEY) {
+          alert("API Key chưa được cấu hình. Vui lòng thêm biến môi trường trên Vercel.");
+          return;
+      }
+
+      setIsGeneratingImage(true);
+      setAiStudioOutputImage(null);
+
+      try {
+          // If input image exists, prompt serves as editing instruction or guidance
+          // If no input image, prompt generates from scratch
+          const resultImage = await generateImageWithGemini(aiStudioPrompt, aiStudioInputImage || undefined);
+          if (resultImage) {
+              setAiStudioOutputImage(resultImage);
+          } else {
+              alert("Không thể tạo ảnh. Vui lòng thử lại với mô tả khác.");
+          }
+      } catch (error) {
+          console.error(error);
+          alert("Đã xảy ra lỗi khi gọi Gemini API.");
+      } finally {
+          setIsGeneratingImage(false);
+      }
   };
 
   // --- DOWNLOAD TEMPLATE ---
@@ -1514,6 +1553,21 @@ const App: React.FC = () => {
                       <p className="text-xs text-slate-500">Truy cập nhanh hệ thống phòng họp.</p>
                    </div>
 
+                   {/* AI STUDIO TOOL */}
+                   <div 
+                      onClick={() => setActiveTool('ai-studio')}
+                      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden"
+                   >
+                      <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                          <svg className="w-16 h-16 text-purple-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z"/></svg>
+                      </div>
+                      <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      </div>
+                      <h3 className="font-bold text-slate-800 mb-1">AI Creative Studio</h3>
+                      <p className="text-xs text-slate-500">Tạo & Chỉnh sửa ảnh với Gemini.</p>
+                   </div>
+
                    <div 
                       onClick={() => setActiveTool('attendance')}
                       className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
@@ -1529,7 +1583,7 @@ const App: React.FC = () => {
                       onClick={() => setActiveTool('statistics')}
                       className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
                    >
-                      <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                       </div>
                       <h3 className="font-bold text-slate-800 mb-1">Báo Cáo Thống Kê</h3>
@@ -1615,6 +1669,141 @@ const App: React.FC = () => {
                                 >
                                     Mở Webex
                                 </a>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                 )}
+
+                 {/* AI STUDIO MODAL */}
+                 {activeTool === 'ai-studio' && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                       <div className="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 shadow-2xl">
+                          <div className="bg-white p-4 lg:p-6 border-b border-slate-200 flex justify-between items-center shrink-0">
+                             <div>
+                                <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                                    <span className="bg-purple-100 text-purple-600 p-1.5 rounded-lg">
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z"/></svg>
+                                    </span>
+                                    AI Creative Studio
+                                </h3>
+                                <p className="text-sm text-slate-500 font-medium">Tạo poster & chỉnh sửa ảnh cho tài liệu đào tạo (Powered by Gemini)</p>
+                             </div>
+                             <button onClick={() => setActiveTool(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                             </button>
+                          </div>
+                          
+                          <div className="flex-1 overflow-y-auto bg-slate-50 flex flex-col lg:flex-row">
+                             {/* Left Panel: Controls */}
+                             <div className="w-full lg:w-1/3 p-6 border-r border-slate-200 bg-white space-y-6">
+                                 <div>
+                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Ảnh Gốc (Tùy chọn)</label>
+                                     <p className="text-[10px] text-slate-400 mb-2">Dùng để chỉnh sửa, đổi nền hoặc lấy bố cục.</p>
+                                     <div className="relative group">
+                                        <div className="border-2 border-dashed border-purple-200 rounded-xl p-4 flex flex-col items-center justify-center bg-purple-50/50 hover:bg-purple-50 transition-colors cursor-pointer text-center h-40 relative overflow-hidden">
+                                            {aiStudioInputImage ? (
+                                                <img src={aiStudioInputImage} className="h-full object-contain absolute inset-0 w-full p-2" />
+                                            ) : (
+                                                <>
+                                                    <div className="w-10 h-10 bg-purple-100 text-purple-500 rounded-full flex items-center justify-center mb-2">
+                                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-500">Tải ảnh lên (PNG/JPG)</span>
+                                                </>
+                                            )}
+                                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => handleImageUpload(e, 'ai_input')} />
+                                        </div>
+                                        {aiStudioInputImage && (
+                                            <button 
+                                                onClick={() => setAiStudioInputImage(null)}
+                                                className="absolute top-2 right-2 bg-red-100 text-red-600 p-1.5 rounded-full hover:bg-red-200 transition-colors z-10"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        )}
+                                     </div>
+                                 </div>
+
+                                 <div>
+                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Mô Tả (Prompt)</label>
+                                     <textarea 
+                                        rows={5}
+                                        value={aiStudioPrompt}
+                                        onChange={e => setAiStudioPrompt(e.target.value)}
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-sm font-medium"
+                                        placeholder={aiStudioInputImage 
+                                            ? "VD: Thay nền thành văn phòng hiện đại, giữ nguyên người.\nVD: Biến ảnh này thành tranh vẽ style hoạt hình." 
+                                            : "VD: Một poster khóa học kỹ năng bán hàng, phong cách chuyên nghiệp, nền xanh dương."}
+                                     />
+                                 </div>
+
+                                 <button 
+                                    onClick={handleGenerateImage}
+                                    disabled={isGeneratingImage || !aiStudioPrompt}
+                                    className={`w-full py-4 rounded-xl font-black text-white shadow-lg transition-all flex items-center justify-center gap-2 ${
+                                        isGeneratingImage || !aiStudioPrompt
+                                        ? 'bg-slate-300 cursor-not-allowed shadow-none' 
+                                        : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-200'
+                                    }`}
+                                 >
+                                     {isGeneratingImage ? (
+                                         <>
+                                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Đang xử lý...
+                                         </>
+                                     ) : (
+                                         <>
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                            Tạo / Chỉnh Sửa
+                                         </>
+                                     )}
+                                 </button>
+                             </div>
+
+                             {/* Right Panel: Result */}
+                             <div className="flex-1 p-6 flex flex-col">
+                                 <div className="flex-1 bg-slate-200 rounded-2xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group">
+                                     {aiStudioOutputImage ? (
+                                         <img src={aiStudioOutputImage} className="max-w-full max-h-full object-contain shadow-2xl" alt="Generated Result" />
+                                     ) : (
+                                         <div className="text-center text-slate-400">
+                                             {isGeneratingImage ? (
+                                                 <div className="flex flex-col items-center animate-pulse">
+                                                     <div className="w-16 h-16 bg-purple-200 rounded-full mb-4"></div>
+                                                     <p className="text-sm font-bold text-purple-400">Gemini đang vẽ...</p>
+                                                 </div>
+                                             ) : (
+                                                 <>
+                                                    <svg className="w-20 h-20 mx-auto mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                    <p className="text-sm font-bold">Kết quả sẽ hiển thị tại đây</p>
+                                                 </>
+                                             )}
+                                         </div>
+                                     )}
+                                 </div>
+                                 
+                                 {aiStudioOutputImage && (
+                                     <div className="mt-4 flex justify-end gap-3">
+                                         <button 
+                                            onClick={() => setAiStudioOutputImage(null)}
+                                            className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                                         >
+                                             Xóa
+                                         </button>
+                                         <a 
+                                            href={aiStudioOutputImage} 
+                                            download={`FTC_AI_Art_${Date.now()}.png`}
+                                            className="px-6 py-2 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 shadow-lg shadow-purple-200 transition-colors flex items-center gap-2"
+                                         >
+                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                             Tải Về
+                                         </a>
+                                     </div>
+                                 )}
                              </div>
                           </div>
                        </div>

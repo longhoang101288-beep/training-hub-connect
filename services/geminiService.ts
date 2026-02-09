@@ -74,3 +74,48 @@ export const suggestTrainingSchedule = async (course: Course) => {
     return null;
   }
 };
+
+export const generateImageWithGemini = async (prompt: string, inputImageBase64?: string) => {
+  const ai = getGeminiAI();
+  
+  try {
+    const parts: any[] = [];
+    
+    // If there's an input image, add it first (for editing/variation context)
+    if (inputImageBase64) {
+      // Clean base64 string if it contains metadata header
+      const cleanBase64 = inputImageBase64.split(',')[1] || inputImageBase64;
+      parts.push({
+        inlineData: {
+          data: cleanBase64,
+          mimeType: 'image/png', // Assuming PNG or JPEG, standard mostly compatible
+        },
+      });
+    }
+
+    parts.push({ text: prompt });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: parts },
+      config: {
+        // Do not set responseMimeType for image generation models
+      }
+    });
+
+    // Check response for image data
+    if (response.candidates?.[0]?.content?.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          const base64String = part.inlineData.data;
+          return `data:image/png;base64,${base64String}`;
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Gemini Image Gen Error:", error);
+    throw error;
+  }
+};
