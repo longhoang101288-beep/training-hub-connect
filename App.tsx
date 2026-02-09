@@ -1386,6 +1386,195 @@ const App: React.FC = () => {
                </div>
             )}
 
+            {/* PROFILE TAB - RESTORED */}
+            {activeTab === 'profile' && currentUser && (
+              <div className="max-w-3xl mx-auto">
+                <h2 className="text-2xl font-black text-slate-800 mb-6">Thông Tin Cá Nhân</h2>
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="relative h-32 bg-indigo-600">
+                     <div className="absolute -bottom-12 left-8">
+                        <div className="w-24 h-24 rounded-2xl bg-white p-1 shadow-lg relative group">
+                           <img 
+                              src={currentUser.avatarUrl || `https://ui-avatars.com/api/?name=${currentUser.name}&background=random`} 
+                              className="w-full h-full object-cover rounded-xl"
+                           />
+                           <label className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-xl">
+                              <span className="text-xs font-bold">Đổi ảnh</span>
+                              <input type="file" className="hidden" onChange={(e) => handleImageUpload(e, 'user')} />
+                           </label>
+                        </div>
+                     </div>
+                  </div>
+                  <div className="pt-14 px-8 pb-8">
+                     <div className="flex justify-between items-start mb-6">
+                        <div>
+                           <h3 className="text-2xl font-black text-slate-900">{currentUser.name}</h3>
+                           <p className="text-slate-500 font-medium">@{currentUser.username}</p>
+                           <div className="flex gap-2 mt-2">
+                              <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold uppercase">{currentUser.role}</span>
+                              {currentUser.region && <span className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-bold">{currentUser.region}</span>}
+                           </div>
+                        </div>
+                     </div>
+
+                     <form onSubmit={handleSaveProfile} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Họ Tên</label>
+                              <input 
+                                 type="text" 
+                                 value={profileData.name || ''} 
+                                 onChange={e => setProfileData({...profileData, name: e.target.value})}
+                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-700"
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Email</label>
+                              <input 
+                                 type="email" 
+                                 value={profileData.email || ''} 
+                                 onChange={e => setProfileData({...profileData, email: e.target.value})}
+                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
+                                 placeholder="example@email.com"
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Số điện thoại</label>
+                              <input 
+                                 type="tel" 
+                                 value={profileData.phone || ''} 
+                                 onChange={e => setProfileData({...profileData, phone: e.target.value})}
+                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
+                                 placeholder="0912..."
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Mật khẩu mới</label>
+                              <input 
+                                 type="password" 
+                                 value={profileData.password || ''} 
+                                 onChange={e => setProfileData({...profileData, password: e.target.value})}
+                                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
+                                 placeholder="Để trống nếu không đổi"
+                              />
+                           </div>
+                        </div>
+                        <div>
+                           <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Giới thiệu</label>
+                           <textarea 
+                              rows={4}
+                              value={profileData.bio || ''}
+                              onChange={e => setProfileData({...profileData, bio: e.target.value})}
+                              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
+                              placeholder="Viết đôi dòng về bản thân..."
+                           ></textarea>
+                        </div>
+                        
+                        <div className="flex justify-end pt-4 border-t border-slate-100">
+                           <button 
+                              type="submit" 
+                              disabled={isSaving}
+                              className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
+                           >
+                              {isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}
+                           </button>
+                        </div>
+                     </form>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SETTINGS TAB - RESTORED */}
+            {activeTab === 'settings' && currentUser && (
+               <div className="max-w-2xl mx-auto space-y-6">
+                  <h2 className="text-2xl font-black text-slate-800">Cài Đặt Tài Khoản</h2>
+                  
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                     <div className="p-6 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800">Thông Báo</h3>
+                        <p className="text-xs text-slate-500">Quản lý cách bạn nhận thông tin từ hệ thống</p>
+                     </div>
+                     <div className="p-6 space-y-6">
+                        <div className="flex items-center justify-between">
+                           <div>
+                              <p className="font-bold text-slate-700 text-sm">Thông báo qua Email</p>
+                              <p className="text-xs text-slate-400">Nhận email khi có môn học mới hoặc được duyệt</p>
+                           </div>
+                           <label className="relative inline-flex items-center cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                className="sr-only peer" 
+                                checked={profileData.preferences?.emailNotification ?? true}
+                                onChange={e => setProfileData({
+                                   ...profileData, 
+                                   preferences: { ...profileData.preferences!, emailNotification: e.target.checked }
+                                })}
+                              />
+                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                           </label>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                           <div>
+                              <p className="font-bold text-slate-700 text-sm">Thông báo trình duyệt</p>
+                              <p className="text-xs text-slate-400">Hiển thị popup khi bạn đang online</p>
+                           </div>
+                           <label className="relative inline-flex items-center cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                className="sr-only peer"
+                                checked={profileData.preferences?.browserNotification ?? false}
+                                onChange={e => setProfileData({
+                                   ...profileData, 
+                                   preferences: { ...profileData.preferences!, browserNotification: e.target.checked }
+                                })}
+                              />
+                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                           </label>
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                     <div className="p-6 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800">Giao Diện</h3>
+                        <p className="text-xs text-slate-500">Tùy chỉnh hiển thị</p>
+                     </div>
+                     <div className="p-6">
+                        <div className="flex items-center justify-between">
+                           <div>
+                              <p className="font-bold text-slate-700 text-sm">Chế độ thu gọn</p>
+                              <p className="text-xs text-slate-400">Giảm khoảng cách để hiển thị nhiều thông tin hơn</p>
+                           </div>
+                           <label className="relative inline-flex items-center cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                className="sr-only peer"
+                                checked={profileData.preferences?.compactMode ?? false}
+                                onChange={e => setProfileData({
+                                   ...profileData, 
+                                   preferences: { ...profileData.preferences!, compactMode: e.target.checked }
+                                })}
+                              />
+                              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                           </label>
+                        </div>
+                     </div>
+                  </div>
+                  
+                  <div className="flex justify-end">
+                     <button 
+                        onClick={handleSaveProfile}
+                        disabled={isSaving}
+                        className="px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl shadow-lg transition-all"
+                     >
+                        {isSaving ? 'Đang lưu...' : 'Lưu Cài Đặt'}
+                     </button>
+                  </div>
+               </div>
+            )}
+
             {/* TOOLS TAB - UPDATED ATTENDANCE LOGIC */}
              {activeTab === 'tools' && currentUser && (
                <div className="space-y-6">
