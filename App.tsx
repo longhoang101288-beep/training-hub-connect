@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord, WebexConfig } from './types';
-import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES } from './constants';
+import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES, MOCK_REGISTRATIONS } from './constants';
 import DashboardHeader from './components/DashboardHeader';
 import CourseCalendar from './components/CourseCalendar';
 import BottomNavigation from './components/BottomNavigation';
@@ -141,12 +141,8 @@ const App: React.FC = () => {
         console.warn("Không thể kết nối Database. Chuyển sang chế độ Offline với dữ liệu mẫu.");
         setUsers(INITIAL_USERS);
         setCourses(MOCK_COURSES);
-        
-        setRegistrations([
-           { id: 'r_mock_1', courseId: 'c1', asmId: 'u2', region: 'Hà Nội', date: MOCK_COURSES[0].startDate, status: 'confirmed' },
-           { id: 'r_mock_2', courseId: 'c2', asmId: 'u2', region: 'Hà Nội', date: MOCK_COURSES[1].startDate, status: 'pending' },
-           { id: 'r_mock_3', courseId: 'c3', asmId: 'u3', region: 'Hồ Chí Minh', date: MOCK_COURSES[2].startDate, status: 'confirmed' }
-        ]);
+        // Use consistent MOCK_REGISTRATIONS for offline mode
+        setRegistrations(MOCK_REGISTRATIONS);
         setDbConnected(false);
       }
     } finally {
@@ -157,6 +153,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    // Update polling to 10 seconds (Balanced)
     const interval = setInterval(() => { loadData(true); }, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -349,8 +346,27 @@ const App: React.FC = () => {
 
   const handleSeedData = async () => {
     if(!confirm("XÁC NHẬN KHÔI PHỤC:\n\nHệ thống sẽ xóa toàn bộ dữ liệu hiện tại trên Google Sheet và tạo lại tài khoản Admin (admin/admin) cùng dữ liệu mẫu.\n\nBạn có chắc chắn không?")) return;
+    
     setIsLoading(true);
-    try { await seedDatabase(INITIAL_USERS, MOCK_COURSES); await delay(2000); alert("Khôi phục thành công! Đang tải lại dữ liệu...\nBạn có thể đăng nhập bằng tài khoản: admin / admin"); await loadData(); } catch (error) { console.error(error); alert("Có lỗi khi tạo dữ liệu mẫu."); } finally { setIsLoading(false); }
+    setIsSaving(true); // Stop polling during seed
+
+    try { 
+        await seedDatabase(INITIAL_USERS, MOCK_COURSES); 
+        
+        // Wait longer for the App Script to finish inserting multiple sheets and rows
+        await delay(5000); 
+        
+        alert("Khôi phục thành công! Hệ thống đang tải lại dữ liệu mới...");
+        
+        // Force a fresh load
+        await loadData(); 
+    } catch (error) { 
+        console.error(error); 
+        alert("Có lỗi khi tạo dữ liệu mẫu."); 
+    } finally { 
+        setIsLoading(false);
+        setIsSaving(false); // Resume polling
+    }
   };
 
   const handleRoleChange = (role: UserRole) => {
@@ -454,9 +470,29 @@ const App: React.FC = () => {
 
   const handleCancelRegistration = async (regId: string) => {
     if (!confirm("Bạn có chắc chắn muốn HỦY đăng ký môn học này không?")) return;
+    
+    // Set isSaving to true to pause polling
+    setIsSaving(true);
+    
+    // Optimistic update
     setRegistrations(prev => prev.filter(r => r.id !== regId)); 
-    const success = await saveToSheet("Registrations", { id: regId }, "delete");
-    if (success) { setTimeout(() => { loadData(true); }, 3000); } else { alert("Có lỗi khi hủy đăng ký. Vui lòng thử lại."); loadData(true); }
+    
+    try {
+        const success = await saveToSheet("Registrations", { id: regId }, "delete");
+        if (success) { 
+            // Optional: alert("Đã hủy đăng ký thành công.");
+        } else { 
+            alert("Có lỗi khi hủy đăng ký. Vui lòng thử lại."); 
+            loadData(true); // Revert if failed
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Lỗi kết nối.");
+        loadData(true);
+    } finally {
+        // Resume polling
+        setIsSaving(false);
+    }
   };
 
   const handleRegistrationAction = async (reg: Registration, action: 'confirm' | 'reject') => {
@@ -652,7 +688,7 @@ const App: React.FC = () => {
             {(currentUser.role === UserRole.TRAINER || currentUser.role === UserRole.KA || currentUser.role === UserRole.PM || currentUser.role === UserRole.RSM || currentUser.role === UserRole.ADMIN) && (
                <button onClick={() => setActiveTab('manage-courses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'manage-courses' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                {['TRAINER', 'KA', 'ADMIN'].includes(currentUser.role) ? 'Quản lý Môn học' : 'Tạo Môn học'}
+                {['TRAINER', 'KA', 'ADMIN', 'RSM'].includes(currentUser.role) ? 'Quản lý Môn học' : 'Tạo Môn học'}
                </button>
             )}
 
@@ -711,6 +747,188 @@ const App: React.FC = () => {
                   </div>
                   <CourseCalendar registrations={registrations} user={currentUser} courses={courses} />
                </div>
+            )}
+
+            {activeTab === 'catalog' && (
+              <div className="space-y-6 pb-20">
+                  <div className="flex justify-between items-center">
+                      <h2 className="text-2xl font-black text-slate-800">Đăng Ký Môn Học</h2>
+                  </div>
+
+                  {selectedCourseIds.length > 0 && (
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm animate-in slide-in-from-top-2">
+                          <div className="flex justify-between items-start gap-4">
+                              <div className="flex-1">
+                                  <h3 className="font-bold text-slate-800 mb-1 flex items-center gap-2">
+                                      <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                      AI Tóm Tắt Kế Hoạch
+                                  </h3>
+                                  <p className="text-sm text-slate-600">{aiSummary || "Hệ thống sẽ phân tích các môn học bạn chọn để đưa ra đánh giá về lợi ích cho vùng của bạn."}</p>
+                              </div>
+                              <button onClick={handleGenerateSummary} disabled={isGeneratingAi} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
+                                  {isGeneratingAi ? 'Đang tạo...' : 'Tạo Tóm Tắt'}
+                              </button>
+                          </div>
+                      </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {courses.filter(c => c.approvalStatus === 'approved').length === 0 ? (
+                          <p className="text-slate-500 italic col-span-full text-center py-10">Chưa có môn học nào khả dụng để đăng ký.</p>
+                      ) : (
+                          courses.filter(c => c.approvalStatus === 'approved').map(course => {
+                              const isSelected = selectedCourseIds.includes(course.id);
+                              const existingReg = registrations.find(r => r.courseId === course.id && r.asmId === currentUser.id);
+                              const isRegistered = !!existingReg;
+                              
+                              return (
+                                  <div key={course.id} className={`bg-white rounded-2xl border transition-all overflow-hidden group flex flex-col ${isSelected ? 'border-indigo-500 ring-2 ring-indigo-100 shadow-lg' : 'border-slate-200 shadow-sm hover:shadow-md'}`}>
+                                      <div className="h-40 relative">
+                                          <img src={course.imageUrl} className="w-full h-full object-cover" alt={course.title} />
+                                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4">
+                                              <div className="w-full">
+                                                  <div className="flex justify-between items-start mb-2">
+                                                      <span className="text-[10px] font-black uppercase bg-indigo-600 text-white px-2 py-1 rounded-md shadow-sm">{course.category}</span>
+                                                      {isRegistered && (
+                                                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md shadow-sm ${existingReg.status === 'confirmed' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
+                                                              {existingReg.status === 'confirmed' ? 'Đã Duyệt' : 'Chờ Duyệt'}
+                                                          </span>
+                                                      )}
+                                                  </div>
+                                                  <h3 className="text-white font-bold text-lg leading-tight line-clamp-2">{course.title}</h3>
+                                              </div>
+                                          </div>
+                                      </div>
+                                      <div className="p-4 flex-1 flex flex-col gap-4">
+                                          <div className="grid grid-cols-2 gap-2 text-xs">
+                                              <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                                                  <p className="text-slate-400 font-bold uppercase text-[9px]">Ngày bắt đầu</p>
+                                                  <p className="font-semibold text-slate-700">{formatDate(course.startDate)}</p>
+                                              </div>
+                                              <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                                                  <p className="text-slate-400 font-bold uppercase text-[9px]">Hình thức</p>
+                                                  <p className="font-semibold text-slate-700">{course.format}</p>
+                                              </div>
+                                          </div>
+                                          <p className="text-xs text-slate-500 line-clamp-3 mb-auto">{course.description}</p>
+                                          
+                                          {isRegistered ? (
+                                              <button 
+                                                  onClick={() => handleCancelRegistration(existingReg!.id)}
+                                                  disabled={isSaving}
+                                                  className={`w-full py-3 font-bold rounded-xl text-sm border flex items-center justify-center gap-2 transition-colors ${isSaving ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'}`}
+                                              >
+                                                  {isSaving ? (
+                                                      <>
+                                                          <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                          Đang Hủy...
+                                                      </>
+                                                  ) : (
+                                                      <>
+                                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                          Hủy Đăng Ký
+                                                      </>
+                                                  )}
+                                              </button>
+                                          ) : (
+                                              <button 
+                                                  onClick={() => {
+                                                      if (isSelected) setSelectedCourseIds(prev => prev.filter(id => id !== course.id));
+                                                      else setSelectedCourseIds(prev => [...prev, course.id]);
+                                                  }}
+                                                  className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${isSelected ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-100' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-200'}`}
+                                              >
+                                                  {isSelected ? 'Bỏ chọn' : 'Chọn Môn Này'}
+                                              </button>
+                                          )}
+                                      </div>
+                                  </div>
+                              );
+                          })
+                      )}
+                  </div>
+
+                  {/* FLOATING ACTION BUTTON FOR REGISTRATION */}
+                  {selectedCourseIds.length > 0 && (
+                      <div className="fixed bottom-20 lg:bottom-10 right-4 lg:right-10 z-30 animate-in zoom-in slide-in-from-bottom-4 duration-300">
+                          <button 
+                              onClick={handleRegister} 
+                              disabled={isSaving}
+                              className="bg-indigo-600 text-white px-6 py-4 rounded-full font-bold shadow-2xl shadow-indigo-400 hover:bg-indigo-700 hover:scale-105 transition-all flex items-center gap-3"
+                          >
+                              {isSaving ? (
+                                  <>
+                                      <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                      Đang Gửi...
+                                  </>
+                              ) : (
+                                  <>
+                                      <span className="bg-white text-indigo-600 w-6 h-6 rounded-full flex items-center justify-center text-xs font-black">
+                                          {selectedCourseIds.length}
+                                      </span>
+                                      Gửi Đăng Ký
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                                  </>
+                              )}
+                          </button>
+                      </div>
+                  )}
+              </div>
+            )}
+
+            {activeTab === 'registrations' && (
+              <div className="space-y-6">
+                  <h2 className="text-2xl font-black text-slate-800">Danh Sách Đã Đăng Ký</h2>
+                  {registrations.filter(r => r.asmId === currentUser.id).length === 0 ? (
+                      <div className="bg-white rounded-2xl p-10 text-center border border-slate-200 border-dashed">
+                          <p className="text-slate-400 mb-4">Bạn chưa đăng ký môn học nào.</p>
+                          <button onClick={() => setActiveTab('catalog')} className="text-indigo-600 font-bold hover:underline">Đến trang đăng ký ngay</button>
+                      </div>
+                  ) : (
+                      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden overflow-x-auto">
+                          <table className="w-full text-left text-sm">
+                              <thead className="bg-slate-50 border-b border-slate-200">
+                                  <tr>
+                                      <th className="p-4 font-bold text-slate-600">Môn Học</th>
+                                      <th className="p-4 font-bold text-slate-600">Ngày Bắt Đầu</th>
+                                      <th className="p-4 font-bold text-slate-600">Địa Điểm</th>
+                                      <th className="p-4 font-bold text-slate-600">Trạng Thái</th>
+                                      <th className="p-4 font-bold text-slate-600 text-right">Hành Động</th>
+                                  </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                  {registrations.filter(r => r.asmId === currentUser.id).map(reg => {
+                                      const course = courses.find(c => c.id === reg.courseId);
+                                      return (
+                                          <tr key={reg.id} className="hover:bg-slate-50">
+                                              <td className="p-4 font-bold text-slate-800">{course?.title || 'Unknown'}</td>
+                                              <td className="p-4 text-slate-500">{formatDate(course?.startDate)}</td>
+                                              <td className="p-4 text-slate-500">{course?.location}</td>
+                                              <td className="p-4">
+                                                  <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${reg.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                      {reg.status === 'confirmed' ? 'Đã Duyệt' : 'Chờ Duyệt'}
+                                                  </span>
+                                              </td>
+                                              <td className="p-4 text-right">
+                                                  <button 
+                                                      onClick={() => handleCancelRegistration(reg.id)} 
+                                                      disabled={isSaving}
+                                                      className={`font-bold text-xs hover:underline flex items-center gap-1 ml-auto ${isSaving ? 'text-slate-400 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
+                                                  >
+                                                      {isSaving ? 'Đang hủy...' : 'Hủy Đăng Ký'}
+                                                  </button>
+                                              </td>
+                                          </tr>
+                                      );
+                                  })}
+                              </tbody>
+                          </table>
+                      </div>
+                  )}
+              </div>
             )}
 
             {/* --- USER MANAGEMENT --- */}
@@ -1154,7 +1372,7 @@ const App: React.FC = () => {
                                  <input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} placeholder="Username" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
                                  <input type="text" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
                              </div>
-                             <button onClick={handleSaveWebexConfig} disabled={isSaving} className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình Webex'}</button>
+                             <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
                          </div>
                      </div>
                   </div>
