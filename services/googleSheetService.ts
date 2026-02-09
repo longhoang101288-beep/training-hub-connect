@@ -9,54 +9,67 @@ import { User, Course, Registration } from "../types";
 // 4. Who has access: Anyone (Bất kỳ ai) -> CỰC KỲ QUAN TRỌNG để tránh lỗi Failed to fetch
 // 5. Deploy -> Copy "Web App URL" và dán vào biến API_URL dưới đây thay cho link mẫu
 // =============================================================================================
-const API_URL = "https://script.google.com/macros/s/AKfycbwtEgFZN3xJWXmttPb7E-RGmuji4X_Hn_jMMU-W2GiBUClr-y7CaCxw9njb2T1k4Mq6vQ/exec"; 
+// @ts-ignore
+const ENV_URL = import.meta.env?.VITE_GOOGLE_SHEET_URL;
+const API_URL = ENV_URL || "https://script.google.com/macros/s/AKfycbwtEgFZN3xJWXmttPb7E-RGmuji4X_Hn_jMMU-W2GiBUClr-y7CaCxw9njb2T1k4Mq6vQ/exec"; 
 
-export const fetchAllData = async () => {
-  try {
-    // GET Request: Không gửi Header Content-Type để tránh CORS Preflight (OPTIONS request) từ trình duyệt
-    // Google Apps Script xử lý Simple GET tốt hơn khi không có custom headers
-    const response = await fetch(`${API_URL}?action=read&t=${new Date().getTime()}`, {
-      method: "GET",
-      credentials: "omit", 
-      redirect: "follow",
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Server returned ${response.status} ${response.statusText}`);
-    }
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    const text = await response.text();
-    
-    // Kiểm tra xem có phải HTML (Lỗi trả về trang login Google do chưa set quyền Anyone) không
-    if (text.trim().startsWith("<!DOCTYPE html>") || text.includes("Google Accounts")) {
-       throw new Error("Lỗi quyền truy cập: Hãy đảm bảo Script được Deploy với quyền 'Anyone' (Bất kỳ ai).");
-    }
-
+export const fetchAllData = async (retries = 3, delay = 1000) => {
+  for (let i = 0; i < retries; i++) {
     try {
-      const data = JSON.parse(text);
-      if (data.status === 'error') {
-        throw new Error(data.message);
-      }
+      // GET Request: Không gửi Header Content-Type để tránh CORS Preflight (OPTIONS request) từ trình duyệt
+      // Google Apps Script xử lý Simple GET tốt hơn khi không có custom headers
+      const response = await fetch(`${API_URL}?action=read&t=${new Date().getTime()}`, {
+        method: "GET",
+        credentials: "omit", 
+        redirect: "follow",
+      });
       
-      // Parse nested JSON strings (như preferences)
-      if (data.users) {
-        data.users = data.users.map((u: any) => ({
-          ...u,
-          preferences: (typeof u.preferences === 'string' && u.preferences.startsWith('{')) 
-            ? JSON.parse(u.preferences) 
-            : u.preferences
-        }));
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status} ${response.statusText}`);
       }
 
-      return data;
-    } catch (e) {
-      console.warn("Response is not JSON:", text.substring(0, 100));
-      return null;
+      const text = await response.text();
+      
+      // Kiểm tra xem có phải HTML (Lỗi trả về trang login Google do chưa set quyền Anyone) không
+      if (text.trim().startsWith("<!DOCTYPE html>") || text.includes("Google Accounts")) {
+         throw new Error("Lỗi quyền truy cập: Hãy đảm bảo Script được Deploy với quyền 'Anyone' (Bất kỳ ai).");
+      }
+
+      try {
+        const data = JSON.parse(text);
+        if (data.status === 'error') {
+          throw new Error(data.message);
+        }
+        
+        // Parse nested JSON strings (như preferences)
+        if (data.users) {
+          data.users = data.users.map((u: any) => ({
+            ...u,
+            preferences: (typeof u.preferences === 'string' && u.preferences.startsWith('{')) 
+              ? JSON.parse(u.preferences) 
+              : u.preferences
+          }));
+        }
+
+        return data;
+      } catch (e) {
+        console.warn("Response is not JSON:", text.substring(0, 100));
+        // If response is not JSON, it might be a temporary server issue, treat as error to trigger retry
+        throw new Error("Invalid JSON response");
+      }
+    } catch (error) {
+      const isLastAttempt = i === retries - 1;
+      if (isLastAttempt) {
+        console.warn(`Lỗi khi tải dữ liệu từ Google Sheets (sau ${retries} lần thử):`, error);
+        return null;
+      }
+      // Wait before retrying
+      await wait(delay * (i + 1)); // Exponential backoff-ish (1s, 2s, 3s...)
     }
-  } catch (error) {
-    console.error("Lỗi khi tải dữ liệu từ Google Sheets:", error);
-    return null;
   }
+  return null;
 };
 
 export const saveToSheet = async (
