@@ -1,5 +1,6 @@
 
 import { User, Course, Registration } from "../types";
+import { MOCK_REGISTRATIONS } from "../constants";
 
 // =============================================================================================
 // QUAN TRỌNG: BẠN CẦN CẬP NHẬT URL NÀY SAU KHI DEPLOY GOOGLE APPS SCRIPT
@@ -9,67 +10,54 @@ import { User, Course, Registration } from "../types";
 // 4. Who has access: Anyone (Bất kỳ ai) -> CỰC KỲ QUAN TRỌNG để tránh lỗi Failed to fetch
 // 5. Deploy -> Copy "Web App URL" và dán vào biến API_URL dưới đây thay cho link mẫu
 // =============================================================================================
-// @ts-ignore
-const ENV_URL = import.meta.env?.VITE_GOOGLE_SHEET_URL;
-const API_URL = ENV_URL || "https://script.google.com/macros/s/AKfycbwtEgFZN3xJWXmttPb7E-RGmuji4X_Hn_jMMU-W2GiBUClr-y7CaCxw9njb2T1k4Mq6vQ/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbyludK0DwyRzLK5OeJH_dmSFPnzO-55i9JlAG58-vMyNic2FfGDMJwhS8cV5wr4j0d8ZA/exec"; 
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export const fetchAllData = async (retries = 3, delay = 1000) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      // GET Request: Không gửi Header Content-Type để tránh CORS Preflight (OPTIONS request) từ trình duyệt
-      // Google Apps Script xử lý Simple GET tốt hơn khi không có custom headers
-      const response = await fetch(`${API_URL}?action=read&t=${new Date().getTime()}`, {
-        method: "GET",
-        credentials: "omit", 
-        redirect: "follow",
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status} ${response.statusText}`);
-      }
-
-      const text = await response.text();
-      
-      // Kiểm tra xem có phải HTML (Lỗi trả về trang login Google do chưa set quyền Anyone) không
-      if (text.trim().startsWith("<!DOCTYPE html>") || text.includes("Google Accounts")) {
-         throw new Error("Lỗi quyền truy cập: Hãy đảm bảo Script được Deploy với quyền 'Anyone' (Bất kỳ ai).");
-      }
-
-      try {
-        const data = JSON.parse(text);
-        if (data.status === 'error') {
-          throw new Error(data.message);
-        }
-        
-        // Parse nested JSON strings (như preferences)
-        if (data.users) {
-          data.users = data.users.map((u: any) => ({
-            ...u,
-            preferences: (typeof u.preferences === 'string' && u.preferences.startsWith('{')) 
-              ? JSON.parse(u.preferences) 
-              : u.preferences
-          }));
-        }
-
-        return data;
-      } catch (e) {
-        console.warn("Response is not JSON:", text.substring(0, 100));
-        // If response is not JSON, it might be a temporary server issue, treat as error to trigger retry
-        throw new Error("Invalid JSON response");
-      }
-    } catch (error) {
-      const isLastAttempt = i === retries - 1;
-      if (isLastAttempt) {
-        console.warn(`Lỗi khi tải dữ liệu từ Google Sheets (sau ${retries} lần thử):`, error);
-        return null;
-      }
-      // Wait before retrying
-      await wait(delay * (i + 1)); // Exponential backoff-ish (1s, 2s, 3s...)
+export const fetchAllData = async () => {
+  try {
+    // GET Request: Không gửi Header Content-Type để tránh CORS Preflight (OPTIONS request) từ trình duyệt
+    // Google Apps Script xử lý Simple GET tốt hơn khi không có custom headers
+    const response = await fetch(`${API_URL}?action=read&t=${new Date().getTime()}`, {
+      method: "GET",
+      credentials: "omit", 
+      redirect: "follow",
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status} ${response.statusText}`);
     }
+
+    const text = await response.text();
+    
+    // Kiểm tra xem có phải HTML (Lỗi trả về trang login Google do chưa set quyền Anyone) không
+    if (text.trim().startsWith("<!DOCTYPE html>") || text.includes("Google Accounts")) {
+       throw new Error("Lỗi quyền truy cập: Hãy đảm bảo Script được Deploy với quyền 'Anyone' (Bất kỳ ai).");
+    }
+
+    try {
+      const data = JSON.parse(text);
+      if (data.status === 'error') {
+        throw new Error(data.message);
+      }
+      
+      // Parse nested JSON strings (như preferences)
+      if (data.users) {
+        data.users = data.users.map((u: any) => ({
+          ...u,
+          preferences: (typeof u.preferences === 'string' && u.preferences.startsWith('{')) 
+            ? JSON.parse(u.preferences) 
+            : u.preferences
+        }));
+      }
+
+      return data;
+    } catch (e) {
+      console.warn("Response is not JSON:", text.substring(0, 100));
+      return null;
+    }
+  } catch (error) {
+    console.error("Lỗi khi tải dữ liệu từ Google Sheets:", error);
+    return null;
   }
-  return null;
 };
 
 export const saveToSheet = async (
@@ -112,16 +100,8 @@ export const saveToSheet = async (
 
 export const seedDatabase = async (users: User[], courses: Course[]) => {
   try {
-    const mockRegistrations = [
-      {
-        id: 'reg_seed_1',
-        courseId: courses[0]?.id || 'c1',
-        asmId: users.find(u => u.role === 'ASM')?.id || 'u2',
-        region: users.find(u => u.role === 'ASM')?.region || 'Hà Nội',
-        date: courses[0]?.startDate || '2024-06-15',
-        status: 'pending'
-      }
-    ];
+    // Sử dụng MOCK_REGISTRATIONS từ constants để đảm bảo dữ liệu phong phú
+    const mockRegistrations = MOCK_REGISTRATIONS;
 
     const sanitizedUsers = users.map(u => {
         const su: any = { ...u };
@@ -129,6 +109,7 @@ export const seedDatabase = async (users: User[], courses: Course[]) => {
         return su;
     });
 
+    // Gửi payload seed
     await fetch(API_URL, {
       method: "POST",
       mode: "no-cors",

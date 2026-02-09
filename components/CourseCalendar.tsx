@@ -85,7 +85,8 @@ const CourseCalendar: React.FC<CourseCalendarProps> = ({ registrations, user, co
 
       const dateMatch = regDateOnly === dateStr;
       
-      const regionMatch = (user.role === UserRole.ADMIN || user.role === UserRole.TRAINER) 
+      // Update logic: ADMIN, TRAINER, and KA see all. Others filter by region/ASM ID.
+      const regionMatch = (user.role === UserRole.ADMIN || user.role === UserRole.TRAINER || user.role === UserRole.KA) 
         ? true 
         : (reg.region === user.region || reg.asmId === user.id);
 
@@ -201,118 +202,34 @@ const CourseCalendar: React.FC<CourseCalendarProps> = ({ registrations, user, co
                 Livestream
             </div>
         </div>
-        
-        {(user.role === UserRole.ADMIN || user.role === UserRole.TRAINER) && (
-           <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1 text-[10px] text-slate-400 uppercase font-bold">
-                 <div className="w-4 h-4 border border-slate-300 border-dashed rounded bg-slate-100"></div>
-                 Chờ duyệt
-              </div>
-           </div>
-        )}
       </div>
 
-      {/* Course Detail Modal */}
       {selectedCourse && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedCourse(null)}>
-           <div 
-             className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200 border border-slate-100" 
-             onClick={e => e.stopPropagation()}
-           >
-              <div className="relative h-56 shrink-0 group">
-                 <img src={selectedCourse.imageUrl} className="w-full h-full object-cover" alt={selectedCourse.title} />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
-                 <div className="absolute top-4 right-4">
-                    <button onClick={() => setSelectedCourse(null)} className="bg-black/40 hover:bg-black/60 text-white rounded-full p-2 backdrop-blur-md transition-colors">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                    </button>
+        <div className="absolute inset-0 z-10 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedCourse(null)}>
+           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+              <div className="relative h-32">
+                 <img src={selectedCourse.imageUrl} className="w-full h-full object-cover" />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4">
+                    <h3 className="text-white font-bold text-lg leading-tight">{selectedCourse.title}</h3>
                  </div>
-                 <div className="absolute bottom-4 left-4 right-4">
-                    <div className="flex gap-2 mb-2">
-                        <span className="px-2 py-1 bg-indigo-600 text-white text-[10px] font-black rounded uppercase tracking-wider shadow-sm">
-                        {selectedCourse.category}
-                        </span>
-                        <span className={`px-2 py-1 text-white text-[10px] font-black rounded uppercase tracking-wider shadow-sm ${
-                            selectedCourse.format === 'Online' ? 'bg-sky-500' : 
-                            selectedCourse.format === 'Offline' ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`}>
-                        {selectedCourse.format}
-                        </span>
-                    </div>
-                    <h3 className="text-2xl font-black text-white leading-tight shadow-sm">{selectedCourse.title}</h3>
-                 </div>
+                 <button onClick={() => setSelectedCourse(null)} className="absolute top-2 right-2 bg-black/40 text-white p-1 rounded-full hover:bg-black/60"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
               </div>
-              <div className="p-6">
-                 <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                       <div className="flex items-center gap-2 text-indigo-600 mb-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg>
-                          <span className="text-[10px] font-black uppercase tracking-wider">Ngày học</span>
-                       </div>
-                       <p className="font-bold text-slate-800 text-sm">
-                         {formatDate(selectedCourse.startDate)}
-                         {selectedCourse.startDate !== selectedCourse.endDate && ` - ${formatDate(selectedCourse.endDate)}`}
-                       </p>
+              <div className="p-4 space-y-3">
+                 <p className="text-xs text-slate-500 line-clamp-3">{selectedCourse.description}</p>
+                 <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                       <p className="text-slate-400 font-bold uppercase text-[9px]">Thời gian</p>
+                       <p className="font-semibold text-slate-700">{formatTime(selectedCourse.startTime)} - {formatTime(selectedCourse.endTime)}</p>
                     </div>
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                       <div className="flex items-center gap-2 text-indigo-600 mb-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                          <span className="text-[10px] font-black uppercase tracking-wider">Thời gian</span>
-                       </div>
-                       <p className="font-bold text-slate-800 text-sm">
-                         {formatTime(selectedCourse.startTime)} - {formatTime(selectedCourse.endTime)}
-                       </p>
+                    <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                       <p className="text-slate-400 font-bold uppercase text-[9px]">Hình thức</p>
+                       <p className="font-semibold text-slate-700">{selectedCourse.format}</p>
                     </div>
                  </div>
-
-                 {/* ADDED: Target Audience Section */}
-                 <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 mb-4">
-                    <div className="flex items-center gap-2 text-blue-600 mb-1">
-                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                       <span className="text-[10px] font-black uppercase tracking-wider">Đối tượng tham gia</span>
-                    </div>
-                    <p className="font-bold text-slate-800 text-sm">
-                      {selectedCourse.targetAudience || 'Tất cả'}
-                    </p>
+                 <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                    <p className="text-indigo-400 font-bold uppercase text-[9px] mb-1">Địa điểm / Link</p>
+                    <p className="font-bold text-indigo-700 text-sm truncate">{selectedCourse.location}</p>
                  </div>
-
-                 <div className="grid grid-cols-1 gap-4 mb-4">
-                   <div className="bg-orange-50 p-3 rounded-2xl border border-orange-100">
-                      <div className="flex items-center gap-2 text-orange-600 mb-1">
-                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                         <span className="text-[10px] font-black uppercase tracking-wider">
-                             {selectedCourse.format === 'Online' || selectedCourse.format === 'Livestream' ? 'Link tham gia' : 'Địa điểm tổ chức'}
-                         </span>
-                      </div>
-                      
-                      {/* FIX: Make link clickable for Online/Livestream */}
-                      {(selectedCourse.format === 'Online' || selectedCourse.format === 'Livestream') && selectedCourse.location ? (
-                          <a 
-                            href={selectedCourse.location.startsWith('http') ? selectedCourse.location : `https://${selectedCourse.location}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="font-bold text-blue-600 text-sm hover:underline break-all block"
-                          >
-                            {selectedCourse.location}
-                          </a>
-                      ) : (
-                          <p className="font-bold text-orange-900 text-sm break-words">
-                            {selectedCourse.location || 'Chưa cập nhật'}
-                          </p>
-                      )}
-                   </div>
-                 </div>
-                 
-                 <div className="mb-6">
-                   <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Nội dung đào tạo</h4>
-                   <p className="text-sm text-slate-600 leading-relaxed font-medium bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                     {selectedCourse.description}
-                   </p>
-                 </div>
-
-                 <button onClick={() => setSelectedCourse(null)} className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-colors text-sm">
-                   Đóng cửa sổ
-                 </button>
               </div>
            </div>
         </div>

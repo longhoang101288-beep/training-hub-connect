@@ -3,20 +3,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Course } from "../types";
 
 /**
- * Initialization following guidelines.
- * Updated to support Vercel Environment Variables (VITE_API_KEY).
+ * Initialization following guidelines: must use named parameter and direct process.env.API_KEY.
+ * The instance is created per call to ensure it uses the latest configuration as per best practices.
  */
 export const getGeminiAI = () => {
-  // Ưu tiên lấy từ VITE_API_KEY (Chuẩn cho React/Vite trên Vercel)
-  // Fallback sang process.env.API_KEY cho môi trường local cũ
-  // @ts-ignore
-  const apiKey = import.meta.env?.VITE_API_KEY || process.env.API_KEY;
-
-  if (!apiKey) {
-    console.warn("⚠️ API Key chưa được cấu hình. Hãy thêm biến môi trường VITE_API_KEY trên Vercel.");
-  }
-
-  return new GoogleGenAI({ apiKey: apiKey || "" });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 export const generateTrainingPlanSummary = async (selectedCourses: Course[], region: string) => {
@@ -42,7 +33,7 @@ export const generateTrainingPlanSummary = async (selectedCourses: Course[], reg
     return response.text;
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Không thể tạo bản tóm tắt AI lúc này. Vui lòng kiểm tra API Key.";
+    return "Không thể tạo bản tóm tắt AI lúc này.";
   }
 };
 

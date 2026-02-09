@@ -1,5 +1,5 @@
 
-import { Course, User, UserRole } from './types';
+import { Course, User, UserRole, Registration } from './types';
 
 // Helper to get dynamic dates relative to today
 const getRelativeDate = (dayOffset: number, hour: number = 8, minute: number = 0) => {
@@ -92,4 +92,11 @@ export const INITIAL_USERS: User[] = [
   { id: 'u5', username: 'rsm_mienbac', password: 'password', name: 'RSM Miền Bắc', role: UserRole.RSM, region: 'Miền Bắc 1' },
   { id: 'u6', username: 'pm_product', password: 'password', name: 'Product Manager', role: UserRole.PM },
   { id: 'u7', username: 'ka_manager', password: 'password', name: 'Key Account Mgr', role: UserRole.KA },
+];
+
+export const MOCK_REGISTRATIONS: Registration[] = [
+  { id: 'r_mock_1', courseId: 'c1', asmId: 'u2', region: 'Hà Nội', date: MOCK_COURSES[0].startDate, status: 'confirmed' },
+  { id: 'r_mock_2', courseId: 'c2', asmId: 'u2', region: 'Hà Nội', date: MOCK_COURSES[1].startDate, status: 'pending' },
+  { id: 'r_mock_3', courseId: 'c3', asmId: 'u3', region: 'Hồ Chí Minh', date: MOCK_COURSES[2].startDate, status: 'confirmed' },
+  { id: 'r_mock_4', courseId: 'c1', asmId: 'u5', region: 'Miền Bắc 1', date: MOCK_COURSES[0].startDate, status: 'confirmed' }
 ];
