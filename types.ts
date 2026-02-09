@@ -61,8 +61,15 @@ export interface PopupConfig {
   linkUrl: string;
 }
 
+export interface WebexConfig {
+  url: string;
+  username: string;
+  password: string;
+}
+
 export interface SystemSettings {
   popup: PopupConfig;
+  webex?: WebexConfig;
 }
 
 // Updated based on user request

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord } from './types';
+import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord, WebexConfig } from './types';
 import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES } from './constants';
 import DashboardHeader from './components/DashboardHeader';
 import CourseCalendar from './components/CourseCalendar';
@@ -22,12 +22,16 @@ const App: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   
-  // System Settings State (Popup)
+  // System Settings State (Popup & Webex)
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
-    popup: { isActive: false, imageUrl: '', linkUrl: '' }
+    popup: { isActive: false, imageUrl: '', linkUrl: '' },
+    webex: { url: '', username: '', password: '' }
   });
   const [showGlobalPopup, setShowGlobalPopup] = useState(false);
+  
+  // Forms for Settings
   const [popupConfigForm, setPopupConfigForm] = useState<PopupConfig>({ isActive: false, imageUrl: '', linkUrl: '' });
+  const [webexConfigForm, setWebexConfigForm] = useState<WebexConfig>({ url: '', username: '', password: '' });
   
   // Initialize currentUser from localStorage to persist login across refreshes
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -92,11 +96,12 @@ const App: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // --- TOOL STATES ---
-  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | null>(null);
+  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | null>(null);
   const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [showWebexPassword, setShowWebexPassword] = useState(false);
 
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
@@ -114,10 +119,14 @@ const App: React.FC = () => {
         setRegistrations(data.registrations || []);
         
         // Load Settings if available, otherwise defaults
-        if (data.settings && data.settings.popup) {
-          setSystemSettings({ popup: data.settings.popup });
-          setPopupConfigForm(data.settings.popup);
-        }
+        const loadedSettings: SystemSettings = {
+            popup: data.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' },
+            webex: data.settings?.webex || { url: '', username: '', password: '' }
+        };
+
+        setSystemSettings(loadedSettings);
+        setPopupConfigForm(loadedSettings.popup);
+        setWebexConfigForm(loadedSettings.webex || { url: '', username: '', password: '' });
         
         setDbConnected(true);
       } else {
@@ -263,13 +272,48 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const getLocationPlaceholder = (fmt: string) => {
-    switch (fmt) {
-        case 'Online': return 'Link Zoom / Google Meet / Teams...';
-        case 'Offline': return 'Địa chỉ văn phòng / Tên phòng họp cụ thể';
-        case 'Livestream': return 'Link phát trực tiếp (Youtube, Facebook...)';
-        default: return 'Địa điểm tổ chức';
-    }
+  // --- DOWNLOAD TEMPLATE ---
+  const handleDownloadTemplate = () => {
+     // Prepare dummy data with exact headers
+     const headers = [
+         {
+             "ID": "VD: 1001",
+             "Ngày": "2024-06-15",
+             "Check in": "08:00",
+             "Check out": "17:00",
+             "Môn học": "Kỹ năng bán hàng",
+             "Họ và Tên": "Nguyễn Văn A",
+             "Inside": "SGN001",
+             "Địa chỉ shop làm việc": "123 Đường ABC",
+             "Email": "nhanvien@email.com",
+             "ASM": "ASM Khu Vực 1",
+             "Email ASM": "asm@email.com",
+             "Feedback": "Bài học bổ ích"
+         }
+     ];
+
+     const ws = XLSX.utils.json_to_sheet(headers);
+     
+     // Set column widths for better readability
+     const wscols = [
+         {wch: 10}, // ID
+         {wch: 12}, // Ngay
+         {wch: 10}, // Check in
+         {wch: 10}, // Check out
+         {wch: 25}, // Course
+         {wch: 20}, // Name
+         {wch: 10}, // Inside
+         {wch: 25}, // Address
+         {wch: 25}, // Email
+         {wch: 15}, // ASM
+         {wch: 25}, // Email ASM
+         {wch: 30}  // Feedback
+     ];
+     ws['!cols'] = wscols;
+
+     const wb = XLSX.utils.book_new();
+     XLSX.utils.book_append_sheet(wb, ws, "Mau_Diem_Danh");
+     XLSX.writeFile(wb, "FTC_Mau_Diem_Danh_Dao_Tao.xlsx");
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,8 +332,6 @@ const App: React.FC = () => {
               const ws = wb.Sheets[wsname];
               const data = XLSX.utils.sheet_to_json(ws);
               
-              // Normalize data based on specific user request
-              // ID, Ngày, Check in, Check out, Môn học, Họ và Tên, Inside, Địa chỉ shop làm việc, Email, ASM, Email ASM, Feedback
               const mappedData: AttendanceRecord[] = data.map((row: any, index: number) => ({
                   id: row['ID'] || `att_${Date.now()}_${index}`,
                   date: row['Ngày'] || row['Date'] || new Date().toLocaleDateString('vi-VN'),
@@ -303,7 +345,7 @@ const App: React.FC = () => {
                   asm: row['ASM'] || '',
                   asmEmail: row['Email ASM'] || '',
                   feedback: row['Feedback'] || row['Góp ý'] || '',
-                  rating: parseInt(row['Rating'] || row['Điểm'] || '0') // Optional, derive from data if exists
+                  rating: parseInt(row['Rating'] || row['Điểm'] || '0')
               }));
 
               setAttendanceData(mappedData);
@@ -327,14 +369,9 @@ const App: React.FC = () => {
       
       let successCount = 0;
       const total = attendanceData.length;
-
-      // Ensure data sent matches the columns in the Sheet "Attendance"
-      // Expected Headers on Google Sheet: ID, Ngày, Check in, Check out, Môn học, Họ và Tên, Inside, Địa chỉ shop làm việc, Email, ASM, Email ASM, Feedback
       
       for (let i = 0; i < total; i++) {
           const record = attendanceData[i];
-          
-          // Construct payload with exact keys mapping to Sheet Headers
           const payload = {
              "ID": record.id,
              "Ngày": record.date,
@@ -353,8 +390,6 @@ const App: React.FC = () => {
           const success = await saveToSheet("Attendance", payload, "add");
           if (success) successCount++;
           setUploadProgress(Math.round(((i + 1) / total) * 100));
-          
-          // Small delay to be nice to Google Script
           await new Promise(r => setTimeout(r, 200)); 
       }
 
@@ -371,11 +406,9 @@ const App: React.FC = () => {
   const calculateStatistics = () => {
       if (!courses.length || !registrations.length) return null;
 
-      // 1. Course Stats
       const totalCourses = courses.length;
       const upcomingCourses = courses.filter(c => new Date(c.startDate) >= new Date()).length;
       
-      // 2. Category Stats
       const categoryCount: Record<string, number> = {};
       courses.forEach(c => {
           categoryCount[c.category] = (categoryCount[c.category] || 0) + 1;
@@ -386,19 +419,16 @@ const App: React.FC = () => {
           percent: Math.round((categoryCount[key] / totalCourses) * 100)
       })).sort((a, b) => b.count - a.count);
 
-      // 3. Registration/Region Stats
       const totalRegistrations = registrations.length;
       const approvedRegistrations = registrations.filter(r => r.status === 'confirmed').length;
       const approvalRate = totalRegistrations > 0 ? Math.round((approvedRegistrations / totalRegistrations) * 100) : 0;
 
       const regionStats: Record<string, number> = {};
       registrations.forEach(r => {
-          // Normalize region data just in case
           const region = r.region || 'Khác';
           regionStats[region] = (regionStats[region] || 0) + 1;
       });
 
-      // Sort regions by activity (desc)
       const topRegions = Object.keys(regionStats).map(key => ({
           name: key,
           count: regionStats[key],
@@ -455,9 +485,13 @@ const App: React.FC = () => {
            setUsers(freshData.users);
            setCourses(freshData.courses || []);
            setRegistrations(freshData.registrations || []);
-           if (freshData.settings && freshData.settings.popup) {
-              setSystemSettings({ popup: freshData.settings.popup });
-           }
+           // Load settings on login
+           const loadedSettings = {
+               popup: freshData.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' },
+               webex: freshData.settings?.webex || { url: '', username: '', password: '' }
+           };
+           setSystemSettings(loadedSettings);
+           
            setDbConnected(true);
            usersToCheck = freshData.users;
         }
@@ -503,7 +537,12 @@ const App: React.FC = () => {
           password: authData.password,
           name: authData.name,
           role: authData.role,
-          region: authData.role === UserRole.ADMIN ? '' : authData.region 
+          region: (authData.role as UserRole) === UserRole.ADMIN ? '' : authData.region,
+          preferences: {
+            emailNotification: true,
+            browserNotification: false,
+            compactMode: false
+          }
         };
         
         setUsers([...users, newUser]);
@@ -625,16 +664,9 @@ const App: React.FC = () => {
     e.preventDefault();
     if(!currentUser) return;
     setIsSaving(true);
-
-    // LOGIC: Who creates determines status
-    // KA/Admin -> 'approved' directly (optional, usually they are final)
-    // Trainer/PM/RSM -> 'trainer_approved' (Meaning: Pending KA Approval)
-    // Note: We skip 'pending_trainer' because trainers don't approve anymore.
     
     let initialStatus: CourseApprovalStatus = 'trainer_approved';
     if (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.KA) {
-         // Optionally KA can create and auto-approve, but let's stick to draft flow or direct approve.
-         // Let's assume KA creates as 'approved' or can edit later.
          initialStatus = 'approved'; 
     }
 
@@ -671,7 +703,6 @@ const App: React.FC = () => {
     if (!editingCourse) return;
     setIsSaving(true);
 
-    // If a course was rejected, editing it should reset it to 'trainer_approved' (Pending KA) so KA can review again
     const updatedCourse: Course = {
        ...editingCourse,
        approvalStatus: editingCourse.approvalStatus === 'rejected' ? 'trainer_approved' : editingCourse.approvalStatus
@@ -697,12 +728,9 @@ const App: React.FC = () => {
   };
 
   const handleDeleteCourse = async (courseId: string) => {
-    // Only verify server side, but client side we just double check role
-    // though the button should be hidden for TRAINER.
     if (!confirm("CẢNH BÁO: Bạn có chắc chắn muốn XÓA môn học này?\nHành động này sẽ xóa vĩnh viễn và không thể hoàn tác.")) return;
     
     setIsSaving(true);
-    // Optimistic UI update
     setCourses(prev => prev.filter(c => c.id !== courseId));
     
     const success = await saveToSheet("Courses", { id: courseId }, "delete");
@@ -712,11 +740,10 @@ const App: React.FC = () => {
        setTimeout(() => loadData(true), 1500);
     } else {
        alert("Lỗi: Không thể xóa môn học trên hệ thống.");
-       loadData(true); // Revert
+       loadData(true); 
     }
   };
 
-  // Logic for approving COURSES (creation flow)
   const handleCourseApproval = async (course: Course, newStatus: CourseApprovalStatus) => {
       const updatedCourse = { ...course, approvalStatus: newStatus };
       setCourses(prev => prev.map(c => c.id === course.id ? updatedCourse : c));
@@ -789,7 +816,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Logic for approving REGISTRATIONS (Trainer)
   const handleRegistrationAction = async (reg: Registration, action: 'confirm' | 'reject') => {
     isPollingAllowed.current = false;
 
@@ -823,20 +849,21 @@ const App: React.FC = () => {
     setIsGeneratingAi(false);
   };
 
-  // --- SAVE SETTINGS (POPUP) ---
-  const handleSavePopupConfig = async () => {
+  const handleSaveSettings = async () => {
      setIsSaving(true);
      const newSettings: SystemSettings = {
-         ...systemSettings,
-         popup: popupConfigForm
+         popup: popupConfigForm,
+         webex: webexConfigForm
      };
      setSystemSettings(newSettings);
-     await saveToSheet("Settings", newSettings.popup, "update");
+     
+     // Save both settings
+     await saveToSheet("Settings", newSettings, "update");
+     
      setIsSaving(false);
-     alert("Đã lưu cấu hình Popup!");
+     alert("Đã lưu cấu hình hệ thống (Popup & Webex)!");
   };
 
-  // --- RENDER LOADING ---
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center flex-col gap-4">
@@ -846,7 +873,6 @@ const App: React.FC = () => {
     );
   }
 
-  // --- RENDER LOGIN ---
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -1122,12 +1148,14 @@ const App: React.FC = () => {
         <section className="flex-1 overflow-y-auto bg-slate-50 p-4 lg:p-6 pb-24 lg:pb-6">
           <div className="max-w-7xl mx-auto">
             
-            {/* ... (USERS, CALENDAR, CATALOG, REGISTRATIONS, MANAGE COURSES, APPROVALS, SETTINGS, PROFILE TABS REMAIN UNCHANGED) ... */}
-            {/* Keeping the existing tabs hidden for brevity as they were not requested to change, only TOOLS tab logic changes below */}
-            {/* But we must include them to keep the file valid. I will include the unchanged parts in abbreviated form if this was a patch, but here I provide full content */}
-            
-            {/* ... [Insert previous tab content here if needed, but focused on TOOLS update below] ... */}
-            {/* I will output the full file content to ensure consistency */}
+            {activeTab === 'calendar' && (
+               <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                     <h2 className="text-2xl font-black text-slate-800">Lịch Đào Tạo</h2>
+                  </div>
+                  <CourseCalendar registrations={registrations} user={currentUser} courses={courses} />
+               </div>
+            )}
 
             {/* ... USERS TAB ... */}
             {activeTab === 'users' && currentUser.role === UserRole.ADMIN && (
@@ -1194,17 +1222,142 @@ const App: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
-                  {/* ... Add/Edit Modals logic ... */}
-               </div>
-            )}
+                  
+                  {/* EDIT USER MODAL */}
+                  {editingUser && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-6 md:p-8">
+                          <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                            <span className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                            </span>
+                            Chỉnh Sửa Người Dùng
+                          </h3>
+                          <form onSubmit={handleAdminUpdateUser} className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
+                              <input 
+                                required 
+                                type="text" 
+                                value={editingUser.name} 
+                                onChange={e => setEditingUser({...editingUser, name: e.target.value})} 
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Chức Vụ</label>
+                                <select 
+                                  value={editingUser.role} 
+                                  onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})} 
+                                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
+                                >
+                                  <option value={UserRole.ASM}>ASM</option>
+                                  <option value={UserRole.RSM}>RSM</option>
+                                  <option value={UserRole.TRAINER}>TRAINER</option>
+                                  <option value={UserRole.PM}>PM</option>
+                                  <option value={UserRole.KA}>KA</option>
+                                  <option value={UserRole.ADMIN}>ADMIN</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Khu Vực</label>
+                                <select 
+                                  value={editingUser.region || ''} 
+                                  onChange={e => setEditingUser({...editingUser, region: e.target.value})} 
+                                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
+                                >
+                                  <option value="">Tất cả</option>
+                                  {[...ASM_REGIONS, ...TRAINER_REGIONS].map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đặt lại mật khẩu (Tùy chọn)</label>
+                              <input 
+                                type="text" 
+                                value={editingUser.password} 
+                                onChange={e => setEditingUser({...editingUser, password: e.target.value})} 
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
+                                placeholder="Nhập mật khẩu mới"
+                              />
+                            </div>
+                            <div className="flex gap-3 pt-4">
+                              <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-colors">Hủy</button>
+                              <button type="submit" className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-colors">Lưu Thay Đổi</button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-            {/* ... Other Tabs (Calendar, Catalog, Manage Courses etc.) Logic remains same ... */}
-            {activeTab === 'calendar' && (
-               <div className="space-y-6">
-                  <div className="flex justify-between items-center">
-                     <h2 className="text-2xl font-black text-slate-800">Lịch Đào Tạo</h2>
-                  </div>
-                  <CourseCalendar registrations={registrations} user={currentUser} courses={courses} />
+                  {/* ADD USER MODAL */}
+                  {isAddingUser && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-6 md:p-8">
+                          <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                            <span className="bg-emerald-100 p-2 rounded-lg text-emerald-600">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                            </span>
+                            Thêm Người Dùng Mới
+                          </h3>
+                          <form onSubmit={handleCreateUser} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên Đăng Nhập</label>
+                                <input required type="text" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-medium" placeholder="username" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật Khẩu</label>
+                                <input required type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-medium" placeholder="password" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
+                              <input required type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-medium" placeholder="Nguyễn Văn A" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Chức Vụ</label>
+                                <select 
+                                  value={newUser.role} 
+                                  onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})} 
+                                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-medium"
+                                >
+                                  <option value={UserRole.ASM}>ASM</option>
+                                  <option value={UserRole.RSM}>RSM</option>
+                                  <option value={UserRole.TRAINER}>TRAINER</option>
+                                  <option value={UserRole.PM}>PM</option>
+                                  <option value={UserRole.KA}>KA</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Khu Vực</label>
+                                <select 
+                                  value={newUser.region} 
+                                  onChange={e => setNewUser({...newUser, region: e.target.value})} 
+                                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-medium"
+                                >
+                                  {(newUser.role === UserRole.TRAINER ? TRAINER_REGIONS : ASM_REGIONS).map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex gap-3 pt-4">
+                              <button type="button" onClick={() => setIsAddingUser(false)} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-colors">Hủy</button>
+                              <button type="submit" className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 transition-colors">Tạo Tài Khoản</button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                </div>
             )}
 
@@ -1213,70 +1366,114 @@ const App: React.FC = () => {
                <div className="space-y-6">
                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
                  
-                 {/* ... Popup Config Card ... */}
+                 {/* ... Popup & Webex Config Cards (Admin/KA) ... */}
                  {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.KA) && (
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                     <div className="flex flex-col md:flex-row gap-8">
-                        {/* Preview */}
-                        <div className="w-full md:w-1/3">
-                           <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Hình ảnh Popup</label>
-                           <div className="aspect-[4/3] rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
-                              {popupConfigForm.imageUrl ? (
-                                <img src={popupConfigForm.imageUrl} className="w-full h-full object-contain" />
-                              ) : (
-                                <span className="text-slate-400 text-xs">Chưa có ảnh</span>
-                              )}
-                              <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                 <span className="text-white text-xs font-bold">Thay ảnh</span>
-                              </div>
-                           </div>
-                        </div>
-
-                        {/* Form */}
-                        <div className="flex-1 space-y-4">
-                           <div className="flex items-center justify-between">
-                              <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Global Popup</h3>
-                              <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                     {/* Global Popup Config */}
+                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                         <div className="flex items-center justify-between mb-4">
+                            <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Popup</h3>
+                            <div className="flex items-center gap-2">
                                  <span className={`text-xs font-bold ${popupConfigForm.isActive ? 'text-green-600' : 'text-slate-400'}`}>
-                                    {popupConfigForm.isActive ? 'Đang Bật' : 'Đang Tắt'}
+                                    {popupConfigForm.isActive ? 'Bật' : 'Tắt'}
                                  </span>
                                  <button 
                                    onClick={() => setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive}))}
-                                   className={`w-12 h-6 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}
+                                   className={`w-10 h-5 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}
                                  >
-                                    <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-6' : ''}`}></div>
+                                    <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-5' : ''}`}></div>
                                  </button>
-                              </div>
-                           </div>
-                           
-                           <div>
-                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
-                              <input 
-                                type="text" 
-                                value={popupConfigForm.linkUrl} 
-                                onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})}
-                                placeholder="https://..."
-                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                              />
-                              <p className="text-[10px] text-slate-400 mt-1">Khi người dùng bấm vào ảnh popup sẽ mở link này.</p>
-                           </div>
+                            </div>
+                         </div>
+                         
+                         <div className="flex gap-4">
+                             <div className="w-24 h-24 shrink-0 rounded-xl bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
+                                {popupConfigForm.imageUrl ? (
+                                    <img src={popupConfigForm.imageUrl} className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="text-slate-400 text-[10px]">No Image</span>
+                                )}
+                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
+                             </div>
+                             <div className="flex-1 space-y-2">
+                                <div>
+                                    <input 
+                                        type="text" 
+                                        value={popupConfigForm.linkUrl} 
+                                        onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})}
+                                        placeholder="Link liên kết (https://...)"
+                                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                                    />
+                                </div>
+                                <button 
+                                    onClick={handleSaveSettings}
+                                    disabled={isSaving}
+                                    className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-indigo-700 transition-colors"
+                                >
+                                    {isSaving ? 'Đang lưu...' : 'Lưu Popup'}
+                                </button>
+                             </div>
+                         </div>
+                     </div>
 
-                           <div className="pt-2">
-                              <button 
-                                onClick={handleSavePopupConfig}
+                     {/* Webex Config */}
+                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                         <div className="mb-4">
+                            <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Webex</h3>
+                            <p className="text-xs text-slate-500">Thiết lập thông tin đăng nhập chung cho công cụ tạo lịch họp.</p>
+                         </div>
+                         <div className="space-y-3">
+                             <input 
+                                type="text"
+                                value={webexConfigForm.url}
+                                onChange={e => setWebexConfigForm({...webexConfigForm, url: e.target.value})}
+                                placeholder="URL Trang Đăng Nhập (https://signin.webex.com...)"
+                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                             />
+                             <div className="grid grid-cols-2 gap-3">
+                                 <input 
+                                    type="text"
+                                    value={webexConfigForm.username}
+                                    onChange={e => setWebexConfigForm({...webexConfigForm, username: e.target.value})}
+                                    placeholder="Username / Email"
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                                 />
+                                 <input 
+                                    type="text"
+                                    value={webexConfigForm.password}
+                                    onChange={e => setWebexConfigForm({...webexConfigForm, password: e.target.value})}
+                                    placeholder="Password"
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
+                                 />
+                             </div>
+                             <button 
+                                onClick={handleSaveSettings}
                                 disabled={isSaving}
-                                className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
-                              >
-                                {isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình'}
-                              </button>
-                           </div>
-                        </div>
+                                className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors"
+                             >
+                                {isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình Webex'}
+                             </button>
+                         </div>
                      </div>
                   </div>
                 )}
                  
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                   {/* WEBEX TOOL */}
+                   <div 
+                      onClick={() => setActiveTool('webex')}
+                      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden"
+                   >
+                      <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                          <svg className="w-16 h-16 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+                      </div>
+                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                      </div>
+                      <h3 className="font-bold text-slate-800 mb-1">Tạo Lịch Họp (Webex)</h3>
+                      <p className="text-xs text-slate-500">Truy cập nhanh hệ thống phòng họp.</p>
+                   </div>
+
                    <div 
                       onClick={() => setActiveTool('attendance')}
                       className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
@@ -1287,7 +1484,7 @@ const App: React.FC = () => {
                       <h3 className="font-bold text-slate-800 mb-1">Quản Lý Điểm Danh</h3>
                       <p className="text-xs text-slate-500">Upload và xử lý file sau đào tạo.</p>
                    </div>
-                   {/* ... Other tools ... */}
+                   
                    <div 
                       onClick={() => setActiveTool('statistics')}
                       className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
@@ -1299,6 +1496,90 @@ const App: React.FC = () => {
                       <p className="text-xs text-slate-500">Xem tiến độ đào tạo vùng.</p>
                    </div>
                  </div>
+                 
+                 {/* WEBEX LAUNCHER MODAL */}
+                 {activeTool === 'webex' && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                       <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 shadow-2xl">
+                          <div className="p-8">
+                             <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                             </div>
+                             
+                             <h3 className="text-xl font-black text-center text-slate-800 mb-2">Hệ Thống Họp Trực Tuyến</h3>
+                             <p className="text-center text-slate-500 text-sm mb-8">
+                                Hệ thống sẽ mở trang Webex. Vui lòng sử dụng thông tin tài khoản dưới đây để đăng nhập nếu chưa lưu phiên làm việc.
+                             </p>
+
+                             <div className="space-y-4 mb-8">
+                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Tài khoản (Email)</p>
+                                     <div className="flex items-center justify-between">
+                                         <p className="font-bold text-slate-800">{systemSettings.webex?.username || 'Chưa cấu hình'}</p>
+                                         <button 
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(systemSettings.webex?.username || '');
+                                                alert("Đã copy tài khoản!");
+                                            }}
+                                            className="text-slate-400 hover:text-indigo-600 p-1"
+                                         >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                         </button>
+                                     </div>
+                                 </div>
+                                 
+                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Mật khẩu</p>
+                                     <div className="flex items-center justify-between">
+                                         <p className="font-bold text-slate-800">
+                                            {showWebexPassword ? (systemSettings.webex?.password || 'Chưa cấu hình') : '••••••••'}
+                                         </p>
+                                         <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => setShowWebexPassword(!showWebexPassword)}
+                                                className="text-slate-400 hover:text-indigo-600 p-1"
+                                            >
+                                                {showWebexPassword ? (
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                                                ) : (
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                )}
+                                            </button>
+                                            <button 
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(systemSettings.webex?.password || '');
+                                                    alert("Đã copy mật khẩu!");
+                                                }}
+                                                className="text-slate-400 hover:text-indigo-600 p-1"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                            </button>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+
+                             <div className="flex gap-3">
+                                <button 
+                                    onClick={() => setActiveTool(null)}
+                                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
+                                >
+                                    Đóng
+                                </button>
+                                <a 
+                                    href={systemSettings.webex?.url || '#'}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors text-center shadow-lg shadow-blue-200"
+                                    onClick={() => setActiveTool(null)}
+                                >
+                                    Mở Webex
+                                </a>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                 )}
 
                  {/* ATTENDANCE MANAGEMENT MODAL - UPDATED */}
                  {activeTool === 'attendance' && (
@@ -1318,11 +1599,23 @@ const App: React.FC = () => {
                              <div className="space-y-6">
                                 {/* Upload Section */}
                                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                                   <div className="flex justify-between items-start mb-4">
+                                       <div>
+                                           <h4 className="font-bold text-slate-800 text-lg mb-2">Tải lên danh sách điểm danh</h4>
+                                           <p className="text-sm text-slate-500">Hỗ trợ file Excel (.xlsx, .xls) hoặc CSV. File cần có các cột: ID, Ngày, Check in, Check out, Môn học, Họ và Tên, Inside, Địa chỉ shop làm việc, Email, ASM, Email ASM, Feedback.</p>
+                                       </div>
+                                       <button 
+                                           onClick={handleDownloadTemplate}
+                                           className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors border border-indigo-100 whitespace-nowrap"
+                                       >
+                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                           Tải File Mẫu
+                                       </button>
+                                   </div>
+
                                    <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                                      <div className="flex-1">
-                                         <h4 className="font-bold text-slate-800 text-lg mb-2">Tải lên danh sách điểm danh</h4>
-                                         <p className="text-sm text-slate-500 mb-4">Hỗ trợ file Excel (.xlsx, .xls) hoặc CSV. File cần có các cột: ID, Ngày, Check in, Check out, Môn học, Họ và Tên, Inside, Địa chỉ shop làm việc, Email, ASM, Email ASM, Feedback.</p>
-                                         <div className="relative group">
+                                      <div className="flex-1 w-full">
+                                         <div className="relative group w-full">
                                             <input 
                                                type="file" 
                                                accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
@@ -1347,7 +1640,7 @@ const App: React.FC = () => {
                                       </div>
                                       
                                       {attendanceData.length > 0 && (
-                                         <div className="flex gap-4 items-center">
+                                         <div className="flex gap-4 items-center w-full md:w-auto">
                                             <div className="bg-emerald-50 px-5 py-3 rounded-xl border border-emerald-100 text-center min-w-[120px]">
                                                <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">Hiện diện</p>
                                                <p className="text-2xl font-black text-emerald-700">{attendanceData.length}</p>
@@ -1465,7 +1758,7 @@ const App: React.FC = () => {
                                              <div className="flex items-center justify-between mb-2">
                                                 <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng Môn Học</span>
                                                 <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                                                 </div>
                                              </div>
                                              <p className="text-3xl font-black text-slate-800">{stats.totalCourses}</p>
