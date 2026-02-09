@@ -113,9 +113,11 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   tab_manage_courses: 'Tạo/Quản Lý Môn Học',
   tab_course_approvals: 'Duyệt Môn & Đăng Ký',
   tab_tools: 'Tab Công Cụ & Tiện Ích',
+  tab_trainer_schedule: 'Xem Lịch Làm Việc GV',
   tool_webex: 'Tạo Link Họp Webex',
   tool_attendance: 'Quản Lý Điểm Danh',
   tool_statistics: 'Xem Báo Cáo Thống Kê',
+  tool_work_schedule: 'Cập Nhật Lịch Làm Việc (GV)',
   config_popup: 'Cấu Hình Popup (Admin/KA)',
   config_webex: 'Cấu Hình Webex (Admin)',
   manage_roles: 'Quản Lý Phân Quyền (Admin)'
@@ -124,26 +126,26 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
 export const DEFAULT_ROLE_PERMISSIONS: RolePermission[] = [
   {
     role: UserRole.ADMIN,
-    features: ['tab_calendar', 'tab_users', 'tab_profile', 'tab_manage_courses', 'tab_course_approvals', 'tab_tools', 'tool_webex', 'tool_attendance', 'tool_statistics', 'config_popup', 'config_webex', 'manage_roles']
+    features: ['tab_calendar', 'tab_users', 'tab_profile', 'tab_manage_courses', 'tab_course_approvals', 'tab_tools', 'tab_trainer_schedule', 'tool_webex', 'tool_attendance', 'tool_statistics', 'tool_work_schedule', 'config_popup', 'config_webex', 'manage_roles']
   },
   {
     role: UserRole.ASM,
-    features: ['tab_calendar', 'tab_profile', 'tab_tools', 'tool_attendance', 'tool_statistics'] 
+    features: ['tab_calendar', 'tab_profile', 'tab_tools', 'tab_trainer_schedule', 'tool_attendance', 'tool_statistics'] 
   },
   {
     role: UserRole.TRAINER,
-    features: ['tab_calendar', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tool_webex', 'tool_attendance', 'tool_statistics'] 
+    features: ['tab_calendar', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tab_trainer_schedule', 'tool_webex', 'tool_attendance', 'tool_statistics', 'tool_work_schedule'] 
   },
   {
     role: UserRole.RSM,
-    features: ['tab_calendar', 'tab_catalog', 'tab_registrations', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tool_attendance', 'tool_statistics'] 
+    features: ['tab_calendar', 'tab_catalog', 'tab_registrations', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tab_trainer_schedule', 'tool_attendance', 'tool_statistics'] 
   },
   {
     role: UserRole.PM,
-    features: ['tab_calendar', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tool_attendance', 'tool_statistics'] 
+    features: ['tab_calendar', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tab_trainer_schedule', 'tool_attendance', 'tool_statistics'] 
   },
   {
     role: UserRole.KA,
-    features: ['tab_calendar', 'tab_manage_courses', 'tab_course_approvals', 'tab_profile', 'tab_tools', 'tool_webex', 'tool_attendance', 'tool_statistics', 'config_popup']
+    features: ['tab_calendar', 'tab_manage_courses', 'tab_course_approvals', 'tab_profile', 'tab_tools', 'tab_trainer_schedule', 'tool_webex', 'tool_attendance', 'tool_statistics', 'config_popup']
   }
 ];

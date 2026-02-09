@@ -90,6 +90,27 @@ export interface AttendanceRecord {
   rating?: number; // Optional
 }
 
+export interface DaySchedule {
+  morning: string;
+  afternoon: string;
+}
+
+export interface WeeklyWorkSchedule {
+  id: string; // Format: user_id + year + week (e.g., u4_2024_25)
+  userId: string;
+  year: number;
+  weekNumber: number;
+  days: {
+    monday: DaySchedule;
+    tuesday: DaySchedule;
+    wednesday: DaySchedule;
+    thursday: DaySchedule;
+    friday: DaySchedule;
+    saturday: DaySchedule;
+  };
+  updatedAt: string;
+}
+
 // --- PERMISSION SYSTEM ---
 export type FeatureKey = 
   | 'tab_calendar' 
@@ -101,9 +122,11 @@ export type FeatureKey =
   | 'tab_manage_courses' 
   | 'tab_course_approvals' 
   | 'tab_tools'
+  | 'tab_trainer_schedule' // New: View Trainer Schedule Tab
   | 'tool_webex' 
   | 'tool_attendance' 
   | 'tool_statistics'
+  | 'tool_work_schedule' // New: Input Work Schedule Tool
   | 'config_popup'
   | 'config_webex'
   | 'manage_roles'; // New: Access Role Management

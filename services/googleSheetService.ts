@@ -50,6 +50,14 @@ export const fetchAllData = async () => {
                : []
          }));
       }
+      
+      // Parse nested JSON strings (work schedules)
+      if (data.workschedules) {
+          data.workSchedules = data.workschedules.map((ws: any) => ({
+              ...ws,
+              days: (typeof ws.days === 'string' && ws.days.startsWith('{')) ? JSON.parse(ws.days) : ws.days
+          }));
+      }
 
       return data;
     } catch (e) {
@@ -63,7 +71,7 @@ export const fetchAllData = async () => {
 };
 
 export const saveToSheet = async (
-  sheetName: "Users" | "Courses" | "Registrations" | "Settings" | "Attendance" | "Webex" | "RolePermissions", 
+  sheetName: "Users" | "Courses" | "Registrations" | "Settings" | "Attendance" | "Webex" | "RolePermissions" | "WorkSchedules", 
   payload: any, 
   action: "add" | "update" | "delete" = "add"
 ) => {

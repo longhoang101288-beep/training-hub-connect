@@ -205,31 +205,95 @@ const CourseCalendar: React.FC<CourseCalendarProps> = ({ registrations, user, co
       </div>
 
       {selectedCourse && (
-        <div className="absolute inset-0 z-10 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedCourse(null)}>
-           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-              <div className="relative h-32">
-                 <img src={selectedCourse.imageUrl} className="w-full h-full object-cover" />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4">
-                    <h3 className="text-white font-bold text-lg leading-tight">{selectedCourse.title}</h3>
+        <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedCourse(null)}>
+           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 border border-slate-200" onClick={e => e.stopPropagation()}>
+              
+              {/* Header with Image */}
+              <div className="relative h-40 shrink-0">
+                 <img src={selectedCourse.imageUrl} className="w-full h-full object-cover" alt={selectedCourse.title} />
+                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent flex items-end p-5">
+                    <div className="w-full">
+                        <div className="flex justify-between items-start mb-2">
+                            <span className="text-[10px] font-black uppercase bg-indigo-600 text-white px-2 py-1 rounded-md shadow-sm tracking-wider">
+                                {selectedCourse.category}
+                            </span>
+                        </div>
+                        <h3 className="text-white font-bold text-xl leading-tight line-clamp-2">{selectedCourse.title}</h3>
+                    </div>
                  </div>
-                 <button onClick={() => setSelectedCourse(null)} className="absolute top-2 right-2 bg-black/40 text-white p-1 rounded-full hover:bg-black/60"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                 <button onClick={() => setSelectedCourse(null)} className="absolute top-3 right-3 bg-black/40 text-white p-1.5 rounded-full hover:bg-black/60 transition-colors backdrop-blur-sm">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                 </button>
               </div>
-              <div className="p-4 space-y-3">
-                 <p className="text-xs text-slate-500 line-clamp-3">{selectedCourse.description}</p>
-                 <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="bg-slate-50 p-2 rounded border border-slate-100">
-                       <p className="text-slate-400 font-bold uppercase text-[9px]">Thời gian</p>
-                       <p className="font-semibold text-slate-700">{formatTime(selectedCourse.startTime)} - {formatTime(selectedCourse.endTime)}</p>
+
+              {/* Scrollable Content */}
+              <div className="p-5 space-y-5 overflow-y-auto">
+                 
+                 {/* Meta Data Grid */}
+                 <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                       <p className="text-slate-400 font-bold uppercase text-[9px] mb-1">Thời gian</p>
+                       <p className="font-bold text-slate-800 text-sm">{formatTime(selectedCourse.startTime)} - {formatTime(selectedCourse.endTime)}</p>
                     </div>
-                    <div className="bg-slate-50 p-2 rounded border border-slate-100">
-                       <p className="text-slate-400 font-bold uppercase text-[9px]">Hình thức</p>
-                       <p className="font-semibold text-slate-700">{selectedCourse.format}</p>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                       <p className="text-slate-400 font-bold uppercase text-[9px] mb-1">Hình thức</p>
+                       <p className="font-bold text-slate-800 text-sm">{selectedCourse.format}</p>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 col-span-2">
+                       <p className="text-slate-400 font-bold uppercase text-[9px] mb-1">Đối tượng tham gia</p>
+                       <p className="font-bold text-indigo-600 text-sm">{selectedCourse.targetAudience}</p>
                     </div>
                  </div>
-                 <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
-                    <p className="text-indigo-400 font-bold uppercase text-[9px] mb-1">Địa điểm / Link</p>
-                    <p className="font-bold text-indigo-700 text-sm truncate">{selectedCourse.location}</p>
+
+                 {/* Location / Link */}
+                 <div className="flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
+                    <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600 shrink-0">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    </div>
+                    <div className="overflow-hidden w-full">
+                        <p className="text-[10px] font-bold text-indigo-400 uppercase mb-0.5">Địa điểm / Link lớp học</p>
+                        {(() => {
+                            const isOnline = ['Online', 'Livestream'].includes(selectedCourse.format);
+                            const urlMatch = selectedCourse.location.match(/(https?:\/\/[^\s]+)/);
+                            
+                            if (isOnline && urlMatch) {
+                                return (
+                                    <a 
+                                        href={urlMatch[0]} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-sm font-bold text-indigo-700 hover:text-indigo-900 underline decoration-indigo-300 hover:decoration-indigo-900 underline-offset-2 break-all block group"
+                                    >
+                                        {selectedCourse.location}
+                                        <svg className="w-3 h-3 inline ml-1 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                    </a>
+                                );
+                            }
+                            return <p className="text-sm font-bold text-indigo-900 break-all select-all">{selectedCourse.location}</p>;
+                        })()}
+                    </div>
                  </div>
+
+                 {/* Description */}
+                 <div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
+                        <h4 className="font-bold text-slate-800 text-sm">Nội dung chi tiết</h4>
+                    </div>
+                    <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        {selectedCourse.description}
+                    </div>
+                 </div>
+
+              </div>
+              
+              <div className="p-4 border-t border-slate-100 bg-slate-50 text-center">
+                  <button 
+                    onClick={() => setSelectedCourse(null)}
+                    className="text-slate-500 font-bold text-xs hover:text-indigo-600 transition-colors"
+                  >
+                    Đóng cửa sổ này
+                  </button>
               </div>
            </div>
         </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord, WebexConfig, FeatureKey, RolePermission } from './types';
+import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord, WebexConfig, FeatureKey, RolePermission, WeeklyWorkSchedule } from './types';
 import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES, MOCK_REGISTRATIONS, DEFAULT_ROLE_PERMISSIONS, FEATURE_LABELS } from './constants';
 import DashboardHeader from './components/DashboardHeader';
 import CourseCalendar from './components/CourseCalendar';
@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(DEFAULT_ROLE_PERMISSIONS);
+  const [workSchedules, setWorkSchedules] = useState<WeeklyWorkSchedule[]>([]);
   
   // System Settings State (Popup & Webex) - Still loaded for background system use
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
@@ -56,7 +57,7 @@ const App: React.FC = () => {
   });
 
   const [isLoginView, setIsLoginView] = useState(true);
-  const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools' | 'manage-roles'>('calendar');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools' | 'manage-roles' | 'trainer-schedule'>('calendar');
   
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [aiSummary, setAiSummary] = useState<string>('');
@@ -106,11 +107,16 @@ const App: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // --- TOOL STATES ---
-  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | 'config_webex' | 'config_popup' | null>(null);
+  const [activeTool, setActiveTool] = useState<'statistics' | 'attendance' | 'webex' | 'config_webex' | 'config_popup' | 'work_schedule' | null>(null);
   const [attendanceData, setAttendanceData] = useState<AttendanceRecord[]>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
+
+  // --- WORK SCHEDULE STATES ---
+  const [viewScheduleDate, setViewScheduleDate] = useState(new Date()); // Controls which week is shown in 'trainer-schedule'
+  const [editScheduleDate, setEditScheduleDate] = useState(new Date()); // Controls which week is being edited in modal
+  const [scheduleForm, setScheduleForm] = useState<WeeklyWorkSchedule | null>(null);
 
   // --- DYNAMIC PERMISSION CHECK ---
   const hasPermission = (feature: FeatureKey) => {
@@ -146,8 +152,34 @@ const App: React.FC = () => {
         setUsers(data.users || []);
         setCourses(data.courses || []);
         setRegistrations(data.registrations || []);
+        
+        // --- PERMISSION SYNC LOGIC ---
+        // Ensures new features (Work Schedule) appear even if DB has old permissions
         if (data.rolePermissions && data.rolePermissions.length > 0) {
-            setRolePermissions(data.rolePermissions);
+            const mergedPermissions = data.rolePermissions.map((rp: RolePermission) => {
+                const defaultPerm = DEFAULT_ROLE_PERMISSIONS.find(dp => dp.role === rp.role);
+                if (!defaultPerm) return rp;
+                
+                const newFeatures = [...rp.features];
+                // List of newly added features to auto-inject
+                const newKeys: FeatureKey[] = ['tab_trainer_schedule', 'tool_work_schedule'];
+                
+                newKeys.forEach(key => {
+                    // If default has it, but loaded (old) config doesn't, add it
+                    if (defaultPerm.features.includes(key) && !newFeatures.includes(key)) {
+                        newFeatures.push(key);
+                    }
+                });
+                
+                return { ...rp, features: newFeatures };
+            });
+            setRolePermissions(mergedPermissions);
+        } else {
+            setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
+        }
+
+        if (data.workSchedules) {
+            setWorkSchedules(data.workSchedules);
         }
         
         const loadedSettings: SystemSettings = {
@@ -230,6 +262,27 @@ const App: React.FC = () => {
     } catch (e) {
       return dateString;
     }
+  };
+
+  // Get ISO Week Number
+  const getWeekNumber = (d: Date) => {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+      return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1)/7);
+  };
+
+  // Get Start and End of week
+  const getWeekRange = (date: Date) => {
+      const curr = new Date(date);
+      const first = curr.getDate() - curr.getDay() + 1; // First day is the day of the month - the day of the week + 1
+      const last = first + 5; // last day is the first day + 6
+
+      const firstday = new Date(curr.setDate(first));
+      const lastday = new Date(curr.setDate(last));
+      
+      return { start: firstday, end: lastday };
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'course' | 'user' | 'course_edit' | 'popup') => {
@@ -356,6 +409,64 @@ const App: React.FC = () => {
       if (successCount === total) { setUploadStatus('success'); alert(`Đã lưu thành công ${successCount}/${total} bản ghi!`); } else { setUploadStatus('error'); alert(`Hoàn tất với lỗi. Đã lưu ${successCount}/${total} bản ghi.`); }
   };
 
+  // --- WORK SCHEDULE LOGIC ---
+  const initScheduleForm = (date: Date) => {
+      if (!currentUser) return;
+      const weekNum = getWeekNumber(date);
+      const year = date.getFullYear();
+      const id = `${currentUser.id}_${year}_${weekNum}`;
+      
+      const existing = workSchedules.find(ws => ws.id === id);
+      
+      if (existing) {
+          setScheduleForm(JSON.parse(JSON.stringify(existing))); // Deep copy
+      } else {
+          setScheduleForm({
+              id,
+              userId: currentUser.id,
+              year,
+              weekNumber: weekNum,
+              updatedAt: new Date().toISOString(),
+              days: {
+                  monday: { morning: '', afternoon: '' },
+                  tuesday: { morning: '', afternoon: '' },
+                  wednesday: { morning: '', afternoon: '' },
+                  thursday: { morning: '', afternoon: '' },
+                  friday: { morning: '', afternoon: '' },
+                  saturday: { morning: '', afternoon: '' }
+              }
+          });
+      }
+      setEditScheduleDate(date);
+      setActiveTool('work_schedule');
+  };
+
+  const handleSaveWorkSchedule = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!scheduleForm) return;
+      setIsSaving(true);
+      
+      const payload = { ...scheduleForm, updatedAt: new Date().toISOString() };
+      const success = await saveToSheet("WorkSchedules", payload, "update");
+      
+      if (success) {
+          setWorkSchedules(prev => {
+              const idx = prev.findIndex(ws => ws.id === payload.id);
+              if (idx >= 0) {
+                  const newArr = [...prev];
+                  newArr[idx] = payload;
+                  return newArr;
+              }
+              return [...prev, payload];
+          });
+          alert("Lưu lịch làm việc thành công!");
+          setActiveTool(null);
+      } else {
+          alert("Lỗi khi lưu lịch làm việc.");
+      }
+      setIsSaving(false);
+  };
+
   const calculateStatistics = () => {
       if (!courses.length || !registrations.length) return null;
       const totalCourses = courses.length;
@@ -409,7 +520,23 @@ const App: React.FC = () => {
            setUsers(freshData.users); setCourses(freshData.courses || []); setRegistrations(freshData.registrations || []);
            const loadedSettings = { popup: freshData.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' }, webex: freshData.settings?.webex || { url: '', username: '', password: '' } };
            setSystemSettings(loadedSettings); setDbConnected(true); usersToCheck = freshData.users;
-           if(freshData.rolePermissions) setRolePermissions(freshData.rolePermissions);
+           if(freshData.rolePermissions && freshData.rolePermissions.length > 0) {
+               // Must apply the same merge logic here for login flow
+               const mergedPermissions = freshData.rolePermissions.map((rp: RolePermission) => {
+                    const defaultPerm = DEFAULT_ROLE_PERMISSIONS.find(dp => dp.role === rp.role);
+                    if (!defaultPerm) return rp;
+                    const newFeatures = [...rp.features];
+                    const newKeys: FeatureKey[] = ['tab_trainer_schedule', 'tool_work_schedule'];
+                    newKeys.forEach(key => {
+                        if (defaultPerm.features.includes(key) && !newFeatures.includes(key)) newFeatures.push(key);
+                    });
+                    return { ...rp, features: newFeatures };
+               });
+               setRolePermissions(mergedPermissions);
+           } else {
+               setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
+           }
+           if(freshData.workSchedules) setWorkSchedules(freshData.workSchedules);
         }
         if (!usersToCheck || usersToCheck.length === 0) { if (confirm("CẢNH BÁO: Dữ liệu người dùng trên Google Sheet đang TRỐNG (có thể do bị xóa).\n\nBạn có muốn KHÔI PHỤC lại tài khoản Admin và dữ liệu mẫu ngay bây giờ không?")) { await handleSeedData(); setIsLoggingIn(false); return; } }
         const inputUsername = authData.username.trim().toLowerCase();
@@ -742,6 +869,13 @@ const App: React.FC = () => {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg>
               Lịch đào tạo
             </button>
+            
+            {hasPermission('tab_trainer_schedule') && (
+                <button onClick={() => setActiveTab('trainer-schedule')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'trainer-schedule' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                  Lịch làm việc GV
+                </button>
+            )}
 
             {hasPermission('tab_users') && (
                 <button onClick={() => setActiveTab('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -812,6 +946,96 @@ const App: React.FC = () => {
                   </div>
                   <CourseCalendar registrations={registrations} user={currentUser} courses={courses} />
                </div>
+            )}
+            
+            {/* TRAINER WORK SCHEDULE VIEW */}
+            {activeTab === 'trainer-schedule' && hasPermission('tab_trainer_schedule') && (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-black text-slate-800">Lịch Làm Việc GV FTC</h2>
+                        <div className="flex items-center gap-4 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                            <button onClick={() => setViewScheduleDate(prev => new Date(prev.setDate(prev.getDate() - 7)))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+                            </button>
+                            <div className="text-center min-w-[150px]">
+                                <p className="text-xs text-slate-400 font-bold uppercase">Tuần {getWeekNumber(viewScheduleDate)} - Năm {viewScheduleDate.getFullYear()}</p>
+                                <p className="text-sm font-bold text-slate-800">
+                                    {getWeekRange(viewScheduleDate).start.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})} - {getWeekRange(viewScheduleDate).end.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})}
+                                </p>
+                            </div>
+                            <button onClick={() => setViewScheduleDate(prev => new Date(prev.setDate(prev.getDate() + 7)))} className="p-2 hover:bg-slate-50 rounded-lg text-slate-600">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+                        <table className="w-full text-sm border-collapse min-w-[1200px]">
+                            <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200">
+                                    <th className="p-4 font-black text-slate-600 text-left w-48 sticky left-0 bg-slate-50 z-20 border-r border-slate-200">Giảng Viên</th>
+                                    {['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'].map(day => (
+                                        <th key={day} className="p-4 font-black text-slate-600 text-center w-40 border-r border-slate-100 last:border-0">{day}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {TRAINER_REGIONS.map(region => {
+                                    const regionTrainers = users.filter(u => u.role === UserRole.TRAINER && u.region === region);
+                                    if (regionTrainers.length === 0) return null;
+
+                                    return (
+                                        <React.Fragment key={region}>
+                                            <tr className="bg-slate-100/50">
+                                                <td colSpan={7} className="px-4 py-2 font-black text-xs text-slate-500 uppercase tracking-widest sticky left-0 bg-slate-100/50 z-10">{region}</td>
+                                            </tr>
+                                            {regionTrainers.map(trainer => {
+                                                const weekNum = getWeekNumber(viewScheduleDate);
+                                                const year = viewScheduleDate.getFullYear();
+                                                const scheduleId = `${trainer.id}_${year}_${weekNum}`;
+                                                const schedule = workSchedules.find(ws => ws.id === scheduleId)?.days;
+
+                                                return (
+                                                    <tr key={trainer.id} className="hover:bg-white transition-colors group">
+                                                        <td className="p-4 sticky left-0 bg-white group-hover:bg-slate-50 z-20 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold overflow-hidden text-xs">
+                                                                    {trainer.avatarUrl ? <img src={trainer.avatarUrl} className="w-full h-full object-cover" /> : trainer.name.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <p className="font-bold text-slate-800 text-xs">{trainer.name}</p>
+                                                                    <p className="text-[10px] text-slate-400">@{trainer.username}</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map((dayKey) => (
+                                                            <td key={dayKey} className="border-r border-slate-50 last:border-0 align-top h-24 p-0">
+                                                                <div className="flex flex-col h-full">
+                                                                    <div className="flex-1 p-2 border-b border-dashed border-slate-100 bg-orange-50/30">
+                                                                        <span className="text-[9px] font-bold text-orange-400 uppercase block mb-0.5">Sáng</span>
+                                                                        <p className="text-xs text-slate-700 leading-tight whitespace-pre-line">
+                                                                            {schedule ? (schedule as any)[dayKey]?.morning : ''}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="flex-1 p-2 bg-blue-50/30">
+                                                                        <span className="text-[9px] font-bold text-blue-400 uppercase block mb-0.5">Chiều</span>
+                                                                        <p className="text-xs text-slate-700 leading-tight whitespace-pre-line">
+                                                                            {schedule ? (schedule as any)[dayKey]?.afternoon : ''}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                );
+                                            })}
+                                        </React.Fragment>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             )}
 
             {/* ... other tabs ... */}
@@ -946,475 +1170,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'registrations' && hasPermission('tab_registrations') && (
-              <div className="space-y-6">
-                  <h2 className="text-2xl font-black text-slate-800">Danh Sách Đã Đăng Ký</h2>
-                  {registrations.filter(r => r.asmId === currentUser.id).length === 0 ? (
-                      <div className="bg-white rounded-2xl p-10 text-center border border-slate-200 border-dashed">
-                          <p className="text-slate-400 mb-4">Bạn chưa đăng ký môn học nào.</p>
-                          <button onClick={() => setActiveTab('catalog')} className="text-indigo-600 font-bold hover:underline">Đến trang đăng ký ngay</button>
-                      </div>
-                  ) : (
-                      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden overflow-x-auto">
-                          <table className="w-full text-left text-sm">
-                              <thead className="bg-slate-50 border-b border-slate-200">
-                                  <tr>
-                                      <th className="p-4 font-bold text-slate-600">Môn Học</th>
-                                      <th className="p-4 font-bold text-slate-600">Ngày Bắt Đầu</th>
-                                      <th className="p-4 font-bold text-slate-600">Địa Điểm</th>
-                                      <th className="p-4 font-bold text-slate-600">Trạng Thái</th>
-                                      <th className="p-4 font-bold text-slate-600 text-right">Hành Động</th>
-                                  </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                  {registrations.filter(r => r.asmId === currentUser.id).map(reg => {
-                                      const course = courses.find(c => c.id === reg.courseId);
-                                      return (
-                                          <tr key={reg.id} className="hover:bg-slate-50">
-                                              <td className="p-4 font-bold text-slate-800">{course?.title || 'Unknown'}</td>
-                                              <td className="p-4 text-slate-500">{formatDate(course?.startDate)}</td>
-                                              <td className="p-4 text-slate-500">{course?.location}</td>
-                                              <td className="p-4">
-                                                  <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${reg.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                      {reg.status === 'confirmed' ? 'Đã Duyệt' : 'Chờ Duyệt'}
-                                                  </span>
-                                              </td>
-                                              <td className="p-4 text-right">
-                                                  <button 
-                                                      onClick={() => handleCancelRegistration(reg.id)} 
-                                                      disabled={isSaving}
-                                                      className={`font-bold text-xs hover:underline flex items-center gap-1 ml-auto ${isSaving ? 'text-slate-400 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
-                                                  >
-                                                      {isSaving ? 'Đang hủy...' : 'Hủy Đăng Ký'}
-                                                  </button>
-                                              </td>
-                                          </tr>
-                                      );
-                                  })}
-                              </tbody>
-                          </table>
-                      </div>
-                  )}
-              </div>
-            )}
-
-            {/* --- USER MANAGEMENT --- */}
-            {activeTab === 'users' && hasPermission('tab_users') && (
-                <div className="space-y-6">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <h2 className="text-2xl font-black text-slate-800">Quản lý người dùng</h2>
-                        <div className="flex gap-2 items-center w-full md:w-auto">
-                            <button onClick={handleSeedData} className="flex-1 md:flex-none bg-amber-100 text-amber-700 px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-amber-200 transition-colors flex items-center justify-center gap-2">Khởi tạo Data Mẫu</button>
-                            <button onClick={() => setIsAddingUser(true)} className="flex-1 md:flex-none bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors">Thêm người dùng</button>
-                        </div>
-                    </div>
-                    {/* User Table */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-                        <table className="w-full text-left min-w-[600px]">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Họ Tên & Username</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Chức Vụ</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Vùng Miền</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Hành Động</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {users.map(u => (
-                                    <tr key={u.id} className="hover:bg-slate-50 transition-colors group">
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold overflow-hidden">
-                                                    {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : (u.name ? u.name.charAt(0) : '?')}
-                                                </div>
-                                                <div><p className="font-bold text-slate-800">{u.name}</p><p className="text-xs text-slate-400">@{u.username}</p></div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter bg-slate-100 text-slate-600">{u.role}</span></td>
-                                        <td className="px-6 py-4"><span className="text-sm font-medium text-slate-600">{u.region || 'Tất cả'}</span></td>
-                                        <td className="px-6 py-4"><div className="flex items-center gap-3"><button onClick={() => setEditingUser(u)} className="text-indigo-600 hover:text-indigo-800 text-sm font-bold">Chỉnh sửa</button>{u.username !== 'admin' && (<button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:text-red-700 text-sm font-bold">Xóa</button>)}</div></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    {/* User Edit Modal */}
-                    {editingUser && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6 overflow-hidden flex flex-col">
-                                <h3 className="text-xl font-bold mb-4">Chỉnh sửa người dùng</h3>
-                                <form onSubmit={handleAdminUpdateUser} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
-                                        <input type="text" value={editingUser.name} onChange={e => setEditingUser({...editingUser, name: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username (Không đổi)</label>
-                                        <input type="text" value={editingUser.username} disabled className="w-full p-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu mới</label>
-                                        <input type="text" value={editingUser.password} onChange={e => setEditingUser({...editingUser, password: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" placeholder="Nhập để đổi mật khẩu" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Chức Vụ</label>
-                                            <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value={UserRole.ASM}>ASM</option>
-                                                <option value={UserRole.RSM}>RSM</option>
-                                                <option value={UserRole.TRAINER}>Giảng Viên</option>
-                                                <option value={UserRole.PM}>PM (Product)</option>
-                                                <option value={UserRole.KA}>KA (Key Account)</option>
-                                                <option value={UserRole.ADMIN}>Admin</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Khu Vực</label>
-                                            <select value={editingUser.region} onChange={e => setEditingUser({...editingUser, region: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value="">Tất cả / Không</option>
-                                                {(editingUser.role === UserRole.TRAINER ? TRAINER_REGIONS : ASM_REGIONS).map(r => (
-                                                    <option key={r} value={r}>{r}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3 pt-2">
-                                        <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2 bg-slate-100 rounded-lg text-slate-600 font-bold">Hủy</button>
-                                        <button type="submit" disabled={isSaving} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg font-bold">{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-                    {/* User Add Modal */}
-                    {isAddingUser && (
-                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6">
-                                <h3 className="text-xl font-bold mb-4">Thêm người dùng mới</h3>
-                                <form onSubmit={handleCreateUser} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
-                                        <input type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username</label>
-                                        <input type="text" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu</label>
-                                        <input type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" placeholder="Mặc định: 123456" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Chức Vụ</label>
-                                            <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value={UserRole.ASM}>ASM</option>
-                                                <option value={UserRole.RSM}>RSM</option>
-                                                <option value={UserRole.TRAINER}>Giảng Viên</option>
-                                                <option value={UserRole.PM}>PM (Product)</option>
-                                                <option value={UserRole.KA}>KA (Key Account)</option>
-                                                <option value={UserRole.ADMIN}>Admin</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Khu Vực</label>
-                                            <select value={newUser.region} onChange={e => setNewUser({...newUser, region: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value="">Tất cả / Không</option>
-                                                {(newUser.role === UserRole.TRAINER ? TRAINER_REGIONS : ASM_REGIONS).map(r => (
-                                                    <option key={r} value={r}>{r}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3 pt-2">
-                                        <button type="button" onClick={() => setIsAddingUser(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-slate-600 font-bold">Hủy</button>
-                                        <button type="submit" disabled={isSaving} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg font-bold">{isSaving ? 'Đang tạo...' : 'Tạo Mới'}</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'profile' && currentUser && hasPermission('tab_profile') && (
-                <div className="max-w-3xl mx-auto">
-                    <h2 className="text-2xl font-black text-slate-800 mb-6">Thông Tin Cá Nhân</h2>
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                        <form onSubmit={handleSaveProfile} className="space-y-4">
-                            <div className="flex items-center gap-4 mb-6">
-                                <div className="relative group cursor-pointer">
-                                    <div className="w-20 h-20 rounded-full bg-slate-200 overflow-hidden">
-                                        {currentUser.avatarUrl ? <img src={currentUser.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-400">{currentUser.name.charAt(0)}</div>}
-                                    </div>
-                                    <label className="absolute inset-0 bg-black/50 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-full cursor-pointer">
-                                        <span className="text-xs font-bold">Đổi ảnh</span>
-                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'user')} />
-                                    </label>
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-lg">{currentUser.name}</h3>
-                                    <p className="text-slate-500 text-sm">{currentUser.role} • {currentUser.region || 'N/A'}</p>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label><input type="text" value={profileData.name || ''} onChange={e => setProfileData({...profileData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email</label><input type="email" value={profileData.email || ''} onChange={e => setProfileData({...profileData, email: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Số điện thoại</label><input type="text" value={profileData.phone || ''} onChange={e => setProfileData({...profileData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu mới</label><input type="password" value={profileData.password || ''} onChange={e => setProfileData({...profileData, password: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Để trống nếu không đổi" /></div>
-                            </div>
-                            <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giới thiệu</label><textarea value={profileData.bio || ''} onChange={e => setProfileData({...profileData, bio: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24"></textarea></div>
-                            <button type="submit" disabled={isSaving} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Manage Roles Tab (New) */}
-            {activeTab === 'manage-roles' && hasPermission('manage_roles') && (
-                <div className="space-y-6">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-2xl font-black text-slate-800">Quản Lý Phân Quyền</h2>
-                        <button onClick={handleSavePermissions} disabled={isSaving} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2">
-                            {isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}
-                        </button>
-                    </div>
-                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm overflow-x-auto">
-                        <table className="w-full text-left text-sm min-w-[800px]">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr>
-                                    <th className="p-4 font-black text-slate-600 uppercase text-xs w-64 sticky left-0 bg-slate-50 z-10 border-r border-slate-200">Tính Năng</th>
-                                    {Object.values(UserRole).map(role => (
-                                        <th key={role} className="p-4 font-black text-slate-600 uppercase text-xs text-center">{role}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {(Object.keys(FEATURE_LABELS) as FeatureKey[]).map(featureKey => (
-                                    <tr key={featureKey} className="hover:bg-slate-50">
-                                        <td className="p-4 font-bold text-slate-700 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-sm">{FEATURE_LABELS[featureKey]}</td>
-                                        {Object.values(UserRole).map(role => {
-                                            const roleConfig = rolePermissions.find(rp => rp.role === role) || DEFAULT_ROLE_PERMISSIONS.find(rp => rp.role === role);
-                                            const isChecked = roleConfig?.features.includes(featureKey);
-                                            const isLocked = role === UserRole.ADMIN && featureKey === 'manage_roles'; // Admin cannot remove manage_roles from self
-
-                                            return (
-                                                <td key={`${role}-${featureKey}`} className="p-4 text-center">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={isChecked || false} 
-                                                        onChange={(e) => handlePermissionChange(role, featureKey, e.target.checked)}
-                                                        disabled={isLocked || isSaving}
-                                                        className={`w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 ${isLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                                                    />
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    <p className="text-xs text-slate-500 italic bg-amber-50 p-3 rounded-lg border border-amber-100">
-                        * Lưu ý: Thay đổi quyền hạn sẽ có hiệu lực ngay lập tức. Hãy cẩn thận khi bỏ quyền "Quản lý Phân quyền" của Admin.
-                    </p>
-                </div>
-            )}
-
-            {/* Manage Courses Tab */}
-            {activeTab === 'manage-courses' && hasPermission('tab_manage_courses') && (
-                <div className="space-y-6">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-2xl font-black text-slate-800">Quản Lý Môn Học</h2>
-                        <button onClick={() => setIsAddingCourse(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700">
-                            + Tạo Môn Học Mới
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {courses.filter(c => 
-                            currentUser.role === UserRole.ADMIN || 
-                            currentUser.role === UserRole.KA || 
-                            c.creatorRole === currentUser.role
-                        ).map(course => (
-                            <div key={course.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden group">
-                                <div className="h-40 relative">
-                                    <img src={course.imageUrl} className="w-full h-full object-cover" />
-                                    <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-black uppercase rounded shadow-sm ${course.approvalStatus === 'approved' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
-                                        {course.approvalStatus === 'approved' ? 'Đã duyệt' : 'Chờ duyệt'}
-                                    </div>
-                                </div>
-                                <div className="p-4">
-                                    <h3 className="font-bold text-slate-800 line-clamp-1">{course.title}</h3>
-                                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">{course.description}</p>
-                                    <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
-                                        <button onClick={() => setEditingCourse(course)} className="flex-1 py-1.5 bg-slate-100 rounded text-xs font-bold text-slate-600 hover:bg-slate-200">Sửa</button>
-                                        <button onClick={() => handleDeleteCourse(course.id)} className="flex-1 py-1.5 bg-red-50 rounded text-xs font-bold text-red-600 hover:bg-red-100">Xóa</button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    {/* Add/Edit Course Modals (hidden here for brevity as they are unchanged) */}
-                    {isAddingCourse && (
-                       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                             <div className="p-6">
-                                <h3 className="text-xl font-bold mb-6">Tạo Môn Học Mới</h3>
-                                <form onSubmit={handleAddCourse} className="space-y-4">
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên Môn Học</label><input type="text" value={newCourse.title} onChange={e => setNewCourse({...newCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô tả</label><textarea value={newCourse.description} onChange={e => setNewCourse({...newCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24" required></textarea></div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh Mục</label><select value={newCourse.category} onChange={e => setNewCourse({...newCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Sales">Sales</option><option value="Product">Product</option><option value="Soft Skills">Soft Skills</option><option value="Marketing">Marketing</option><option value="Tech">Tech</option><option value="Other">Other</option></select></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Thức</label><select value={newCourse.format} onChange={e => setNewCourse({...newCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Online">Online</option><option value="Offline">Offline</option><option value="Livestream">Livestream</option></select></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Bắt Đầu</label><input type="date" value={newCourse.startDate} onChange={e => setNewCourse({...newCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Kết Thúc</label><input type="date" value={newCourse.endDate} onChange={e => setNewCourse({...newCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Bắt Đầu</label><input type="time" value={newCourse.startTime} onChange={e => setNewCourse({...newCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Kết Thúc</label><input type="time" value={newCourse.endTime} onChange={e => setNewCourse({...newCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối Tượng Tham Gia</label><input type="text" value={newCourse.targetAudience} onChange={e => setNewCourse({...newCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="VD: ASM, Sales Team..." /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa Điểm / Link Zoom</label><input type="text" value={newCourse.location} onChange={e => setNewCourse({...newCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div>
-                                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Ảnh Bìa</label>
-                                       <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'course')} className="mb-2 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                                       {imagePreview && <img src={imagePreview} className="h-32 object-cover rounded-xl border" />}
-                                   </div>
-                                   <div className="flex gap-4 pt-4">
-                                      <button type="button" onClick={() => { setIsAddingCourse(false); setImagePreview(null); }} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl">Hủy</button>
-                                      <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700">{isSaving ? 'Đang lưu...' : 'Tạo Môn Học'}</button>
-                                   </div>
-                                </form>
-                             </div>
-                          </div>
-                       </div>
-                    )}
-                    {editingCourse && (
-                       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                             <div className="p-6">
-                                <h3 className="text-xl font-bold mb-6">Chỉnh Sửa Môn Học</h3>
-                                <form onSubmit={handleUpdateCourse} className="space-y-4">
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên Môn Học</label><input type="text" value={editingCourse.title} onChange={e => setEditingCourse({...editingCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô tả</label><textarea value={editingCourse.description} onChange={e => setEditingCourse({...editingCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24" required></textarea></div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh Mục</label><select value={editingCourse.category} onChange={e => setEditingCourse({...editingCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Sales">Sales</option><option value="Product">Product</option><option value="Soft Skills">Soft Skills</option><option value="Marketing">Marketing</option><option value="Tech">Tech</option><option value="Other">Other</option></select></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Thức</label><select value={editingCourse.format} onChange={e => setEditingCourse({...editingCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Online">Online</option><option value="Offline">Offline</option><option value="Livestream">Livestream</option></select></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Bắt Đầu</label><input type="date" value={editingCourse.startDate} onChange={e => setEditingCourse({...editingCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Kết Thúc</label><input type="date" value={editingCourse.endDate} onChange={e => setEditingCourse({...editingCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Bắt Đầu</label><input type="time" value={editingCourse.startTime} onChange={e => setEditingCourse({...editingCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Kết Thúc</label><input type="time" value={editingCourse.endTime} onChange={e => setEditingCourse({...editingCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối Tượng Tham Gia</label><input type="text" value={editingCourse.targetAudience} onChange={e => setEditingCourse({...editingCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="VD: ASM, Sales Team..." /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa Điểm / Link Zoom</label><input type="text" value={editingCourse.location} onChange={e => setEditingCourse({...editingCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div>
-                                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Ảnh Bìa</label>
-                                       <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'course_edit')} className="mb-2 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                                       {(imagePreview || editingCourse.imageUrl) && <img src={imagePreview || editingCourse.imageUrl} className="h-32 object-cover rounded-xl border" />}
-                                   </div>
-                                   <div className="flex gap-4 pt-4">
-                                      <button type="button" onClick={() => { setEditingCourse(null); setImagePreview(null); }} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl">Hủy</button>
-                                      <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700">{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
-                                   </div>
-                                </form>
-                             </div>
-                          </div>
-                       </div>
-                    )}
-                </div>
-            )}
-
-            {/* RESTORED COURSE APPROVALS TAB */}
-            {activeTab === 'course-approvals' && hasPermission('tab_course_approvals') && (
-                <div className="space-y-8">
-                    {/* SECTION 1: DUYỆT MÔN HỌC */}
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-black text-slate-800">Duyệt Môn Học Mới</h2>
-                        {courses.filter(c => {
-                            if (currentUser.role === UserRole.ADMIN) return c.approvalStatus !== 'approved' && c.approvalStatus !== 'rejected';
-                            if (currentUser.role === UserRole.KA) return c.approvalStatus === 'trainer_approved';
-                            return false;
-                        }).length === 0 ? (
-                            <p className="text-slate-500 italic">Không có môn học nào cần duyệt.</p>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {courses.filter(c => {
-                                    if (currentUser.role === UserRole.ADMIN) return c.approvalStatus !== 'approved' && c.approvalStatus !== 'rejected';
-                                    if (currentUser.role === UserRole.KA) return c.approvalStatus === 'trainer_approved';
-                                    return false;
-                                }).map(course => (
-                                    <div key={course.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
-                                        <div className="h-32 relative">
-                                            <img src={course.imageUrl} className="w-full h-full object-cover" />
-                                            <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded text-xs font-bold shadow-sm">
-                                                {course.creatorRole}
-                                            </div>
-                                        </div>
-                                        <div className="p-4 flex-1 flex flex-col">
-                                            <h3 className="font-bold text-slate-800 mb-1">{course.title}</h3>
-                                            <p className="text-xs text-slate-500 mb-4 line-clamp-2">{course.description}</p>
-                                            <div className="mt-auto flex gap-2">
-                                                <button onClick={() => handleCourseApproval(course, 'rejected')} className="flex-1 py-2 bg-red-50 text-red-600 font-bold rounded-xl text-xs hover:bg-red-100">Từ chối</button>
-                                                <button onClick={() => handleCourseApproval(course, 'approved')} className="flex-1 py-2 bg-indigo-600 text-white font-bold rounded-xl text-xs hover:bg-indigo-700">Duyệt Chốt</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* SECTION 2: DUYỆT ĐĂNG KÝ */}
-                    <div className="space-y-4 pt-4 border-t border-slate-200">
-                        <h2 className="text-2xl font-black text-slate-800">Duyệt Đăng Ký Tham Gia</h2>
-                        {registrations.filter(r => r.status === 'pending').length === 0 ? (
-                            <p className="text-slate-500 italic">Không có yêu cầu đăng ký nào.</p>
-                        ) : (
-                            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden overflow-x-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
-                                            <th className="p-4 font-bold text-slate-600">Người Đăng Ký</th>
-                                            <th className="p-4 font-bold text-slate-600">Môn Học</th>
-                                            <th className="p-4 font-bold text-slate-600">Ngày Học</th>
-                                            <th className="p-4 font-bold text-slate-600">Khu Vực</th>
-                                            <th className="p-4 font-bold text-slate-600 text-right">Hành Động</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {registrations.filter(r => r.status === 'pending').map(reg => {
-                                            const course = courses.find(c => c.id === reg.courseId);
-                                            const user = users.find(u => u.id === reg.asmId);
-                                            return (
-                                                <tr key={reg.id} className="hover:bg-slate-50">
-                                                    <td className="p-4 font-bold text-slate-800">{user?.name || 'Unknown'}</td>
-                                                    <td className="p-4 text-slate-600">{course?.title || 'Unknown Course'}</td>
-                                                    <td className="p-4 text-slate-500">{formatDate(reg.date)}</td>
-                                                    <td className="p-4 text-slate-500">{reg.region}</td>
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            <button onClick={() => handleRegistrationAction(reg, 'reject')} className="text-red-500 hover:text-red-700 font-bold text-xs px-3 py-1 bg-red-50 rounded-lg">Hủy</button>
-                                                            <button onClick={() => handleRegistrationAction(reg, 'confirm')} className="text-green-600 hover:text-green-800 font-bold text-xs px-3 py-1 bg-green-50 rounded-lg">Duyệt</button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* RESTORED TOOLS TAB (Without Personal Schedule) */}
+            {/* RESTORED TOOLS TAB */}
             {activeTab === 'tools' && currentUser && hasPermission('tab_tools') && (
                <div className="space-y-6">
                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
@@ -1439,6 +1195,11 @@ const App: React.FC = () => {
                    
                    {hasPermission('tool_statistics') && (
                        <div onClick={() => setActiveTool('statistics')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Báo Cáo Thống Kê</h3><p className="text-xs text-slate-500">Xem tiến độ đào tạo vùng.</p></div>
+                   )}
+
+                   {/* --- NEW WORK SCHEDULE TOOL (Trainer Only) --- */}
+                   {hasPermission('tool_work_schedule') && (
+                        <div onClick={() => initScheduleForm(new Date())} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Cập Nhật Lịch Làm Việc</h3><p className="text-xs text-slate-500">Khai báo lịch làm việc tuần này.</p></div>
                    )}
 
                    {/* --- RESTORED CONFIG TOOLS --- */}
@@ -1498,7 +1259,79 @@ const App: React.FC = () => {
                     </div>
                  )}
                  
-                 {/* --- NEW CONFIG WEBEX MODAL --- */}
+                 {/* --- WORK SCHEDULE INPUT MODAL --- */}
+                 {activeTool === 'work_schedule' && scheduleForm && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 shadow-2xl">
+                             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-800">Cập Nhật Lịch Làm Việc</h3>
+                                    <p className="text-sm text-slate-500">Tuần {scheduleForm.weekNumber} - Năm {scheduleForm.year} ({getWeekRange(editScheduleDate).start.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})} - {getWeekRange(editScheduleDate).end.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})})</p>
+                                </div>
+                                <div className="flex gap-2">
+                                     <button type="button" onClick={() => initScheduleForm(new Date(editScheduleDate.setDate(editScheduleDate.getDate() - 7)))} className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"><svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg></button>
+                                     <button type="button" onClick={() => initScheduleForm(new Date(editScheduleDate.setDate(editScheduleDate.getDate() + 7)))} className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"><svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg></button>
+                                </div>
+                            </div>
+                            <div className="p-6 overflow-y-auto bg-white flex-1">
+                                <form id="work-schedule-form" onSubmit={handleSaveWorkSchedule} className="space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map((dayKey, index) => {
+                                            const dayLabels = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+                                            return (
+                                                <div key={dayKey} className="border border-slate-200 rounded-xl overflow-hidden">
+                                                    <div className="bg-slate-50 p-3 border-b border-slate-200 font-bold text-slate-700 text-center">
+                                                        {dayLabels[index]}
+                                                    </div>
+                                                    <div className="p-4 space-y-3">
+                                                        <div>
+                                                            <label className="block text-[10px] font-bold text-orange-400 uppercase mb-1">Sáng</label>
+                                                            <textarea 
+                                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg bg-orange-50/20 focus:ring-2 focus:ring-orange-200 outline-none resize-none h-20"
+                                                                placeholder="Công việc buổi sáng..."
+                                                                value={(scheduleForm.days as any)[dayKey].morning}
+                                                                onChange={(e) => setScheduleForm({
+                                                                    ...scheduleForm,
+                                                                    days: {
+                                                                        ...scheduleForm.days,
+                                                                        [dayKey]: { ...(scheduleForm.days as any)[dayKey], morning: e.target.value }
+                                                                    }
+                                                                })}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[10px] font-bold text-blue-400 uppercase mb-1">Chiều</label>
+                                                            <textarea 
+                                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg bg-blue-50/20 focus:ring-2 focus:ring-blue-200 outline-none resize-none h-20"
+                                                                placeholder="Công việc buổi chiều..."
+                                                                value={(scheduleForm.days as any)[dayKey].afternoon}
+                                                                onChange={(e) => setScheduleForm({
+                                                                    ...scheduleForm,
+                                                                    days: {
+                                                                        ...scheduleForm.days,
+                                                                        [dayKey]: { ...(scheduleForm.days as any)[dayKey], afternoon: e.target.value }
+                                                                    }
+                                                                })}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </form>
+                            </div>
+                            <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3">
+                                <button type="button" onClick={() => setActiveTool(null)} className="flex-1 py-3 bg-white border border-slate-200 font-bold text-slate-600 rounded-xl hover:bg-slate-50">Đóng</button>
+                                <button type="submit" form="work-schedule-form" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700 shadow-indigo-200">
+                                    {isSaving ? 'Đang lưu...' : 'Lưu Lịch Làm Việc'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                 )}
+                 
+                 {/* ... existing Config Modals ... */}
                  {activeTool === 'config_webex' && (
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                         <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 shadow-2xl">
