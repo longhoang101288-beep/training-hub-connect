@@ -10,7 +10,7 @@ import { MOCK_REGISTRATIONS } from "../constants";
 // 4. Who has access: Anyone (Bất kỳ ai) -> CỰC KỲ QUAN TRỌNG để tránh lỗi Failed to fetch
 // 5. Deploy -> Copy "Web App URL" và dán vào biến API_URL dưới đây thay cho link mẫu
 // =============================================================================================
-const API_URL = "https://script.google.com/macros/s/AKfycbyludK0DwyRzLK5OeJH_dmSFPnzO-55i9JlAG58-vMyNic2FfGDMJwhS8cV5wr4j0d8ZA/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbztENA5mooO8zHeRbgYoqkE95gW5-yE-7bSnzarbqPuirBb3pUr--lgPIutSU2c8VBkkw/exec"; 
 
 export const fetchAllData = async () => {
   try {

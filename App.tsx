@@ -14,7 +14,16 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false); 
-  const [isSaving, setIsSaving] = useState(false); 
+  
+  // Use Ref to track saving state in closures (setInterval)
+  // This fixes the issue where background updates overwrite local optimistic updates
+  const [isSaving, _setIsSaving] = useState(false); 
+  const isSavingRef = useRef(false);
+  const setIsSaving = (val: boolean) => {
+      isSavingRef.current = val;
+      _setIsSaving(val);
+  };
+
   const [dbConnected, setDbConnected] = useState(false);
 
   // Data States
@@ -106,7 +115,11 @@ const App: React.FC = () => {
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
     // If saving or user is typing settings, do not fetch in background to avoid race conditions
-    if (isBackground && (isEditingConfig.current || isSaving)) return;
+    // Use ref because closure might have stale state
+    if (isBackground && (isEditingConfig.current || isSavingRef.current)) {
+        console.log("Skipping background sync: User is editing or saving.");
+        return;
+    }
 
     if (!isBackground) setIsLoading(true);
     else setIsSyncing(true);
@@ -114,6 +127,13 @@ const App: React.FC = () => {
     try {
       const data = await fetchAllData();
       
+      // CRITICAL CHECK:
+      // If user started saving *during* the fetch, discard this stale data
+      if (isBackground && (isEditingConfig.current || isSavingRef.current)) {
+          console.log("Discarding stale background data.");
+          return;
+      }
+
       if (data) {
         setUsers(data.users || []);
         setCourses(data.courses || []);
@@ -471,19 +491,20 @@ const App: React.FC = () => {
   const handleCancelRegistration = async (regId: string) => {
     if (!confirm("Bạn có chắc chắn muốn HỦY đăng ký môn học này không?")) return;
     
-    // Set isSaving to true to pause polling
+    // Set isSaving to true to pause polling and prevent background sync from overwriting our optimistic update
     setIsSaving(true);
     
-    // Optimistic update
+    // Optimistic update: Remove from UI immediately
     setRegistrations(prev => prev.filter(r => r.id !== regId)); 
     
     try {
         const success = await saveToSheet("Registrations", { id: regId }, "delete");
         if (success) { 
-            // Optional: alert("Đã hủy đăng ký thành công.");
+            // Do nothing, UI is already correct
         } else { 
             alert("Có lỗi khi hủy đăng ký. Vui lòng thử lại."); 
-            loadData(true); // Revert if failed
+            // Revert changes if failed by reloading
+            loadData(true); 
         }
     } catch (e) {
         console.error(e);
@@ -879,515 +900,66 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'registrations' && (
-              <div className="space-y-6">
-                  <h2 className="text-2xl font-black text-slate-800">Danh Sách Đã Đăng Ký</h2>
-                  {registrations.filter(r => r.asmId === currentUser.id).length === 0 ? (
-                      <div className="bg-white rounded-2xl p-10 text-center border border-slate-200 border-dashed">
-                          <p className="text-slate-400 mb-4">Bạn chưa đăng ký môn học nào.</p>
-                          <button onClick={() => setActiveTab('catalog')} className="text-indigo-600 font-bold hover:underline">Đến trang đăng ký ngay</button>
-                      </div>
-                  ) : (
-                      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden overflow-x-auto">
-                          <table className="w-full text-left text-sm">
-                              <thead className="bg-slate-50 border-b border-slate-200">
-                                  <tr>
-                                      <th className="p-4 font-bold text-slate-600">Môn Học</th>
-                                      <th className="p-4 font-bold text-slate-600">Ngày Bắt Đầu</th>
-                                      <th className="p-4 font-bold text-slate-600">Địa Điểm</th>
-                                      <th className="p-4 font-bold text-slate-600">Trạng Thái</th>
-                                      <th className="p-4 font-bold text-slate-600 text-right">Hành Động</th>
-                                  </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                  {registrations.filter(r => r.asmId === currentUser.id).map(reg => {
-                                      const course = courses.find(c => c.id === reg.courseId);
-                                      return (
-                                          <tr key={reg.id} className="hover:bg-slate-50">
-                                              <td className="p-4 font-bold text-slate-800">{course?.title || 'Unknown'}</td>
-                                              <td className="p-4 text-slate-500">{formatDate(course?.startDate)}</td>
-                                              <td className="p-4 text-slate-500">{course?.location}</td>
-                                              <td className="p-4">
-                                                  <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${reg.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                      {reg.status === 'confirmed' ? 'Đã Duyệt' : 'Chờ Duyệt'}
-                                                  </span>
-                                              </td>
-                                              <td className="p-4 text-right">
-                                                  <button 
-                                                      onClick={() => handleCancelRegistration(reg.id)} 
-                                                      disabled={isSaving}
-                                                      className={`font-bold text-xs hover:underline flex items-center gap-1 ml-auto ${isSaving ? 'text-slate-400 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
-                                                  >
-                                                      {isSaving ? 'Đang hủy...' : 'Hủy Đăng Ký'}
-                                                  </button>
-                                              </td>
-                                          </tr>
-                                      );
-                                  })}
-                              </tbody>
-                          </table>
-                      </div>
-                  )}
-              </div>
-            )}
-
-            {/* --- USER MANAGEMENT --- */}
-            {activeTab === 'users' && currentUser.role === UserRole.ADMIN && (
-                <div className="space-y-6">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <h2 className="text-2xl font-black text-slate-800">Quản lý người dùng</h2>
-                        <div className="flex gap-2 items-center w-full md:w-auto">
-                            <button onClick={handleSeedData} className="flex-1 md:flex-none bg-amber-100 text-amber-700 px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-amber-200 transition-colors flex items-center justify-center gap-2">Khởi tạo Data Mẫu</button>
-                            <button onClick={() => setIsAddingUser(true)} className="flex-1 md:flex-none bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors">Thêm người dùng</button>
-                        </div>
-                    </div>
-                    {/* User Table */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-                        <table className="w-full text-left min-w-[600px]">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Họ Tên & Username</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Chức Vụ</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Vùng Miền</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Hành Động</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {users.map(u => (
-                                    <tr key={u.id} className="hover:bg-slate-50 transition-colors group">
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold overflow-hidden">
-                                                    {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : (u.name ? u.name.charAt(0) : '?')}
-                                                </div>
-                                                <div><p className="font-bold text-slate-800">{u.name}</p><p className="text-xs text-slate-400">@{u.username}</p></div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter bg-slate-100 text-slate-600">{u.role}</span></td>
-                                        <td className="px-6 py-4"><span className="text-sm font-medium text-slate-600">{u.region || 'Tất cả'}</span></td>
-                                        <td className="px-6 py-4"><div className="flex items-center gap-3"><button onClick={() => setEditingUser(u)} className="text-indigo-600 hover:text-indigo-800 text-sm font-bold">Chỉnh sửa</button>{u.username !== 'admin' && (<button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:text-red-700 text-sm font-bold">Xóa</button>)}</div></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    {/* User Edit Modal */}
-                    {editingUser && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6 overflow-hidden flex flex-col">
-                                <h3 className="text-xl font-bold mb-4">Chỉnh sửa người dùng</h3>
-                                <form onSubmit={handleAdminUpdateUser} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
-                                        <input type="text" value={editingUser.name} onChange={e => setEditingUser({...editingUser, name: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username (Không đổi)</label>
-                                        <input type="text" value={editingUser.username} disabled className="w-full p-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu mới</label>
-                                        <input type="text" value={editingUser.password} onChange={e => setEditingUser({...editingUser, password: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" placeholder="Nhập để đổi mật khẩu" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Chức Vụ</label>
-                                            <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value={UserRole.ASM}>ASM</option>
-                                                <option value={UserRole.RSM}>RSM</option>
-                                                <option value={UserRole.TRAINER}>Giảng Viên</option>
-                                                <option value={UserRole.PM}>PM (Product)</option>
-                                                <option value={UserRole.KA}>KA (Key Account)</option>
-                                                <option value={UserRole.ADMIN}>Admin</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Khu Vực</label>
-                                            <select value={editingUser.region} onChange={e => setEditingUser({...editingUser, region: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value="">Tất cả / Không</option>
-                                                {(editingUser.role === UserRole.TRAINER ? TRAINER_REGIONS : ASM_REGIONS).map(r => (
-                                                    <option key={r} value={r}>{r}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3 pt-2">
-                                        <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2 bg-slate-100 rounded-lg text-slate-600 font-bold">Hủy</button>
-                                        <button type="submit" disabled={isSaving} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg font-bold">{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-                    {/* User Add Modal */}
-                    {isAddingUser && (
-                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-6">
-                                <h3 className="text-xl font-bold mb-4">Thêm người dùng mới</h3>
-                                <form onSubmit={handleCreateUser} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label>
-                                        <input type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username</label>
-                                        <input type="text" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu</label>
-                                        <input type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none" placeholder="Mặc định: 123456" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Chức Vụ</label>
-                                            <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value={UserRole.ASM}>ASM</option>
-                                                <option value={UserRole.RSM}>RSM</option>
-                                                <option value={UserRole.TRAINER}>Giảng Viên</option>
-                                                <option value={UserRole.PM}>PM (Product)</option>
-                                                <option value={UserRole.KA}>KA (Key Account)</option>
-                                                <option value={UserRole.ADMIN}>Admin</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Khu Vực</label>
-                                            <select value={newUser.region} onChange={e => setNewUser({...newUser, region: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                                                <option value="">Tất cả / Không</option>
-                                                {(newUser.role === UserRole.TRAINER ? TRAINER_REGIONS : ASM_REGIONS).map(r => (
-                                                    <option key={r} value={r}>{r}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3 pt-2">
-                                        <button type="button" onClick={() => setIsAddingUser(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-slate-600 font-bold">Hủy</button>
-                                        <button type="submit" disabled={isSaving} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg font-bold">{isSaving ? 'Đang tạo...' : 'Tạo Mới'}</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'profile' && currentUser && (
-                <div className="max-w-3xl mx-auto">
-                    <h2 className="text-2xl font-black text-slate-800 mb-6">Thông Tin Cá Nhân</h2>
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                        <form onSubmit={handleSaveProfile} className="space-y-4">
-                            <div className="flex items-center gap-4 mb-6">
-                                <div className="relative group cursor-pointer">
-                                    <div className="w-20 h-20 rounded-full bg-slate-200 overflow-hidden">
-                                        {currentUser.avatarUrl ? <img src={currentUser.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-400">{currentUser.name.charAt(0)}</div>}
-                                    </div>
-                                    <label className="absolute inset-0 bg-black/50 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-full cursor-pointer">
-                                        <span className="text-xs font-bold">Đổi ảnh</span>
-                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'user')} />
-                                    </label>
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-lg">{currentUser.name}</h3>
-                                    <p className="text-slate-500 text-sm">{currentUser.role} • {currentUser.region || 'N/A'}</p>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Họ Tên</label><input type="text" value={profileData.name || ''} onChange={e => setProfileData({...profileData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email</label><input type="email" value={profileData.email || ''} onChange={e => setProfileData({...profileData, email: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Số điện thoại</label><input type="text" value={profileData.phone || ''} onChange={e => setProfileData({...profileData, phone: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu mới</label><input type="password" value={profileData.password || ''} onChange={e => setProfileData({...profileData, password: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Để trống nếu không đổi" /></div>
-                            </div>
-                            <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giới thiệu</label><textarea value={profileData.bio || ''} onChange={e => setProfileData({...profileData, bio: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24"></textarea></div>
-                            <button type="submit" disabled={isSaving} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'settings' && (
-             <div className="max-w-3xl mx-auto space-y-6">
-                 <h2 className="text-2xl font-black text-slate-800">Cài Đặt Hệ Thống</h2>
-                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                     <h3 className="font-bold text-lg mb-4">Cấu hình Popup Thông báo</h3>
-                     <div className="space-y-4">
-                         <label className="flex items-center gap-2">
-                             <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, isActive: e.target.checked}); }} className="w-5 h-5 text-indigo-600 rounded" />
-                             <span className="font-medium text-slate-700">Kích hoạt Popup trang chủ</span>
-                         </label>
-                         <div>
-                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình ảnh Popup</label>
-                             <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                             {popupConfigForm.imageUrl && <img src={popupConfigForm.imageUrl} className="mt-2 h-32 object-contain border rounded-lg" />}
-                         </div>
-                         <div>
-                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
-                             <input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
-                         </div>
-                         <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình Popup'}</button>
-                     </div>
-                 </div>
-                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                     <h3 className="font-bold text-lg mb-4">Cấu hình Webex</h3>
-                     <div className="space-y-4">
-                         <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Webex URL</label><input type="text" value={webexConfigForm.url} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, url: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                         <div className="grid grid-cols-2 gap-4">
-                             <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username</label><input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" /></div>
-                             <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Password</label><input type="password" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" /></div>
-                         </div>
-                         <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
-                     </div>
-                 </div>
-             </div>
-            )}
-
-            {/* Manage Courses Tab */}
-            {activeTab === 'manage-courses' && (
-                <div className="space-y-6">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-2xl font-black text-slate-800">Quản Lý Môn Học</h2>
-                        <button onClick={() => setIsAddingCourse(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700">
-                            + Tạo Môn Học Mới
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {/* UPDATE: Allow ADMIN, KA to view all. Others only view their own */}
-                        {courses.filter(c => 
-                            currentUser.role === UserRole.ADMIN || 
-                            currentUser.role === UserRole.KA || 
-                            c.creatorRole === currentUser.role
-                        ).map(course => (
-                            <div key={course.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden group">
-                                <div className="h-40 relative">
-                                    <img src={course.imageUrl} className="w-full h-full object-cover" />
-                                    <div className={`absolute top-2 right-2 px-2 py-1 text-[10px] font-black uppercase rounded shadow-sm ${course.approvalStatus === 'approved' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
-                                        {course.approvalStatus === 'approved' ? 'Đã duyệt' : 'Chờ duyệt'}
-                                    </div>
-                                </div>
-                                <div className="p-4">
-                                    <h3 className="font-bold text-slate-800 line-clamp-1">{course.title}</h3>
-                                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">{course.description}</p>
-                                    <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
-                                        <button onClick={() => setEditingCourse(course)} className="flex-1 py-1.5 bg-slate-100 rounded text-xs font-bold text-slate-600 hover:bg-slate-200">Sửa</button>
-                                        <button onClick={() => handleDeleteCourse(course.id)} className="flex-1 py-1.5 bg-red-50 rounded text-xs font-bold text-red-600 hover:bg-red-100">Xóa</button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    
-                    {/* Add Course Modal */}
-                    {isAddingCourse && (
-                       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                             <div className="p-6">
-                                <h3 className="text-xl font-bold mb-6">Tạo Môn Học Mới</h3>
-                                <form onSubmit={handleAddCourse} className="space-y-4">
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên Môn Học</label><input type="text" value={newCourse.title} onChange={e => setNewCourse({...newCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô tả</label><textarea value={newCourse.description} onChange={e => setNewCourse({...newCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24" required></textarea></div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh Mục</label><select value={newCourse.category} onChange={e => setNewCourse({...newCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Sales">Sales</option><option value="Product">Product</option><option value="Soft Skills">Soft Skills</option><option value="Marketing">Marketing</option><option value="Tech">Tech</option><option value="Other">Other</option></select></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Thức</label><select value={newCourse.format} onChange={e => setNewCourse({...newCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Online">Online</option><option value="Offline">Offline</option><option value="Livestream">Livestream</option></select></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Bắt Đầu</label><input type="date" value={newCourse.startDate} onChange={e => setNewCourse({...newCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Kết Thúc</label><input type="date" value={newCourse.endDate} onChange={e => setNewCourse({...newCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Bắt Đầu</label><input type="time" value={newCourse.startTime} onChange={e => setNewCourse({...newCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Kết Thúc</label><input type="time" value={newCourse.endTime} onChange={e => setNewCourse({...newCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối Tượng Tham Gia</label><input type="text" value={newCourse.targetAudience} onChange={e => setNewCourse({...newCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="VD: ASM, Sales Team..." /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa Điểm / Link Zoom</label><input type="text" value={newCourse.location} onChange={e => setNewCourse({...newCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div>
-                                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Ảnh Bìa</label>
-                                       <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'course')} className="mb-2 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                                       {imagePreview && <img src={imagePreview} className="h-32 object-cover rounded-xl border" />}
-                                   </div>
-                                   <div className="flex gap-4 pt-4">
-                                      <button type="button" onClick={() => { setIsAddingCourse(false); setImagePreview(null); }} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl">Hủy</button>
-                                      <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700">{isSaving ? 'Đang lưu...' : 'Tạo Môn Học'}</button>
-                                   </div>
-                                </form>
-                             </div>
-                          </div>
-                       </div>
-                    )}
-                    
-                    {/* Edit Course Modal */}
-                    {editingCourse && (
-                       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                             <div className="p-6">
-                                <h3 className="text-xl font-bold mb-6">Chỉnh Sửa Môn Học</h3>
-                                <form onSubmit={handleUpdateCourse} className="space-y-4">
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tên Môn Học</label><input type="text" value={editingCourse.title} onChange={e => setEditingCourse({...editingCourse, title: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Mô tả</label><textarea value={editingCourse.description} onChange={e => setEditingCourse({...editingCourse, description: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24" required></textarea></div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Danh Mục</label><select value={editingCourse.category} onChange={e => setEditingCourse({...editingCourse, category: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Sales">Sales</option><option value="Product">Product</option><option value="Soft Skills">Soft Skills</option><option value="Marketing">Marketing</option><option value="Tech">Tech</option><option value="Other">Other</option></select></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Thức</label><select value={editingCourse.format} onChange={e => setEditingCourse({...editingCourse, format: e.target.value as any})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"><option value="Online">Online</option><option value="Offline">Offline</option><option value="Livestream">Livestream</option></select></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Bắt Đầu</label><input type="date" value={editingCourse.startDate} onChange={e => setEditingCourse({...editingCourse, startDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Ngày Kết Thúc</label><input type="date" value={editingCourse.endDate} onChange={e => setEditingCourse({...editingCourse, endDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div className="grid grid-cols-2 gap-4">
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Bắt Đầu</label><input type="time" value={editingCourse.startTime} onChange={e => setEditingCourse({...editingCourse, startTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Giờ Kết Thúc</label><input type="time" value={editingCourse.endTime} onChange={e => setEditingCourse({...editingCourse, endTime: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   </div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Đối Tượng Tham Gia</label><input type="text" value={editingCourse.targetAudience} onChange={e => setEditingCourse({...editingCourse, targetAudience: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="VD: ASM, Sales Team..." /></div>
-                                   <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Địa Điểm / Link Zoom</label><input type="text" value={editingCourse.location} onChange={e => setEditingCourse({...editingCourse, location: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" required /></div>
-                                   <div>
-                                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình Ảnh Bìa</label>
-                                       <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'course_edit')} className="mb-2 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                                       {(imagePreview || editingCourse.imageUrl) && <img src={imagePreview || editingCourse.imageUrl} className="h-32 object-cover rounded-xl border" />}
-                                   </div>
-                                   <div className="flex gap-4 pt-4">
-                                      <button type="button" onClick={() => { setEditingCourse(null); setImagePreview(null); }} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl">Hủy</button>
-                                      <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-indigo-600 font-bold text-white rounded-xl shadow-lg hover:bg-indigo-700">{isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
-                                   </div>
-                                </form>
-                             </div>
-                          </div>
-                       </div>
-                    )}
-                </div>
-            )}
-
-            {/* RESTORED COURSE APPROVALS TAB */}
-            {activeTab === 'course-approvals' && (
-                <div className="space-y-8">
-                    {/* SECTION 1: DUYỆT MÔN HỌC */}
-                    <div className="space-y-4">
-                        <h2 className="text-2xl font-black text-slate-800">Duyệt Môn Học Mới</h2>
-                        {courses.filter(c => {
-                            if (currentUser.role === UserRole.ADMIN) return c.approvalStatus !== 'approved' && c.approvalStatus !== 'rejected';
-                            if (currentUser.role === UserRole.KA) return c.approvalStatus === 'trainer_approved';
-                            return false;
-                        }).length === 0 ? (
-                            <p className="text-slate-500 italic">Không có môn học nào cần duyệt.</p>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {courses.filter(c => {
-                                    if (currentUser.role === UserRole.ADMIN) return c.approvalStatus !== 'approved' && c.approvalStatus !== 'rejected';
-                                    if (currentUser.role === UserRole.KA) return c.approvalStatus === 'trainer_approved';
-                                    return false;
-                                }).map(course => (
-                                    <div key={course.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
-                                        <div className="h-32 relative">
-                                            <img src={course.imageUrl} className="w-full h-full object-cover" />
-                                            <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded text-xs font-bold shadow-sm">
-                                                {course.creatorRole}
-                                            </div>
-                                        </div>
-                                        <div className="p-4 flex-1 flex flex-col">
-                                            <h3 className="font-bold text-slate-800 mb-1">{course.title}</h3>
-                                            <p className="text-xs text-slate-500 mb-4 line-clamp-2">{course.description}</p>
-                                            <div className="mt-auto flex gap-2">
-                                                <button onClick={() => handleCourseApproval(course, 'rejected')} className="flex-1 py-2 bg-red-50 text-red-600 font-bold rounded-xl text-xs hover:bg-red-100">Từ chối</button>
-                                                <button onClick={() => handleCourseApproval(course, 'approved')} className="flex-1 py-2 bg-indigo-600 text-white font-bold rounded-xl text-xs hover:bg-indigo-700">Duyệt Chốt</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* SECTION 2: DUYỆT ĐĂNG KÝ */}
-                    <div className="space-y-4 pt-4 border-t border-slate-200">
-                        <h2 className="text-2xl font-black text-slate-800">Duyệt Đăng Ký Tham Gia</h2>
-                        {registrations.filter(r => r.status === 'pending').length === 0 ? (
-                            <p className="text-slate-500 italic">Không có yêu cầu đăng ký nào.</p>
-                        ) : (
-                            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden overflow-x-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
-                                            <th className="p-4 font-bold text-slate-600">Người Đăng Ký</th>
-                                            <th className="p-4 font-bold text-slate-600">Môn Học</th>
-                                            <th className="p-4 font-bold text-slate-600">Ngày Học</th>
-                                            <th className="p-4 font-bold text-slate-600">Khu Vực</th>
-                                            <th className="p-4 font-bold text-slate-600 text-right">Hành Động</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {registrations.filter(r => r.status === 'pending').map(reg => {
-                                            const course = courses.find(c => c.id === reg.courseId);
-                                            const user = users.find(u => u.id === reg.asmId);
-                                            return (
-                                                <tr key={reg.id} className="hover:bg-slate-50">
-                                                    <td className="p-4 font-bold text-slate-800">{user?.name || 'Unknown'}</td>
-                                                    <td className="p-4 text-slate-600">{course?.title || 'Unknown Course'}</td>
-                                                    <td className="p-4 text-slate-500">{formatDate(reg.date)}</td>
-                                                    <td className="p-4 text-slate-500">{reg.region}</td>
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            <button onClick={() => handleRegistrationAction(reg, 'reject')} className="text-red-500 hover:text-red-700 font-bold text-xs px-3 py-1 bg-red-50 rounded-lg">Hủy</button>
-                                                            <button onClick={() => handleRegistrationAction(reg, 'confirm')} className="text-green-600 hover:text-green-800 font-bold text-xs px-3 py-1 bg-green-50 rounded-lg">Duyệt</button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* RESTORED TOOLS TAB (Without Personal Schedule) */}
             {activeTab === 'tools' && currentUser && (
                <div className="space-y-6">
                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
                  
-                 {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.KA) && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Popup</h3>
-                            <div className="flex items-center gap-2">
-                                 <span className={`text-xs font-bold ${popupConfigForm.isActive ? 'text-green-600' : 'text-slate-400'}`}>{popupConfigForm.isActive ? 'Bật' : 'Tắt'}</span>
-                                 <button onClick={() => { isEditingConfig.current = true; setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive})); }} className={`w-10 h-5 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}>
-                                    <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-5' : ''}`}></div>
-                                 </button>
-                            </div>
-                         </div>
-                         <div className="flex gap-4">
-                             <div className="w-24 h-24 shrink-0 rounded-xl bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
-                                {popupConfigForm.imageUrl ? (<img src={popupConfigForm.imageUrl} className="w-full h-full object-cover" />) : (<span className="text-slate-400 text-[10px]">No Image</span>)}
-                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                     {/* Popup Config - Visible to ADMIN and KA */}
+                     {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.KA) && (
+                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                             <div className="flex items-center justify-between mb-4">
+                                <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Popup</h3>
+                                <div className="flex items-center gap-2">
+                                     <span className={`text-xs font-bold ${popupConfigForm.isActive ? 'text-green-600' : 'text-slate-400'}`}>{popupConfigForm.isActive ? 'Bật' : 'Tắt'}</span>
+                                     <button onClick={() => { isEditingConfig.current = true; setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive})); }} className={`w-10 h-5 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                        <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-5' : ''}`}></div>
+                                     </button>
+                                </div>
                              </div>
-                             <div className="flex-1 space-y-2">
-                                <div><input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} placeholder="Link liên kết (https://...)" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-                                <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Popup'}</button>
+                             <div className="flex gap-4">
+                                 <div className="w-24 h-24 shrink-0 rounded-xl bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
+                                    {popupConfigForm.imageUrl ? (<img src={popupConfigForm.imageUrl} className="w-full h-full object-cover" />) : (<span className="text-slate-400 text-[10px]">No Image</span>)}
+                                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
+                                 </div>
+                                 <div className="flex-1 space-y-2">
+                                    <div><input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} placeholder="Link liên kết (https://...)" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+                                    <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Popup'}</button>
+                                 </div>
                              </div>
                          </div>
-                     </div>
-                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                         <div className="mb-4"><h3 className="font-bold text-slate-800 text-lg">Cấu Hình Webex</h3><p className="text-xs text-slate-500">Thiết lập thông tin đăng nhập chung.</p></div>
-                         <div className="space-y-3">
-                             <input type="text" value={webexConfigForm.url} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, url: e.target.value}); }} placeholder="URL Trang Đăng Nhập" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
-                             <div className="grid grid-cols-2 gap-3">
-                                 <input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} placeholder="Username" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
-                                 <input type="text" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                     )}
+
+                     {/* Webex Config - Visible to ADMIN ONLY */}
+                     {currentUser.role === UserRole.ADMIN && (
+                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                             <div className="mb-4"><h3 className="font-bold text-slate-800 text-lg">Cấu Hình Webex</h3><p className="text-xs text-slate-500">Thiết lập thông tin đăng nhập chung.</p></div>
+                             <div className="space-y-3">
+                                 <input type="text" value={webexConfigForm.url} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, url: e.target.value}); }} placeholder="URL Trang Đăng Nhập" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                                 <div className="grid grid-cols-2 gap-3">
+                                     <input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} placeholder="Username" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                                     <input type="text" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                                 </div>
+                                 <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
                              </div>
-                             <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
                          </div>
-                     </div>
+                     )}
                   </div>
-                )}
                  
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                   <div 
-                      onClick={() => setActiveTool('webex')}
-                      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden"
-                   >
-                      <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><svg className="w-16 h-16 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg></div>
-                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></div>
-                      <h3 className="font-bold text-slate-800 mb-1">Tạo Lịch Họp (Webex)</h3>
-                      <p className="text-xs text-slate-500">Truy cập nhanh hệ thống phòng họp.</p>
-                   </div>
+                   {/* Webex Tool - Visible to ADMIN, KA, TRAINER */}
+                   {['ADMIN', 'KA', 'TRAINER'].includes(currentUser.role) && (
+                       <div 
+                          onClick={() => setActiveTool('webex')}
+                          className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden"
+                       >
+                          <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><svg className="w-16 h-16 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg></div>
+                          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></div>
+                          <h3 className="font-bold text-slate-800 mb-1">Tạo Link Họp Webex</h3>
+                          <p className="text-xs text-slate-500">Truy cập nhanh hệ thống phòng họp.</p>
+                       </div>
+                   )}
 
                    <div onClick={() => setActiveTool('attendance')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Quản Lý Điểm Danh</h3><p className="text-xs text-slate-500">Upload và xử lý file sau đào tạo.</p></div>
                    
