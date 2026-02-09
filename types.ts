@@ -24,6 +24,8 @@ export interface User {
     emailNotification: boolean;
     browserNotification: boolean;
     compactMode: boolean;
+    themeColor?: 'indigo' | 'rose' | 'emerald' | 'blue' | 'amber';
+    language?: 'vi' | 'en';
   };
 }
 
@@ -95,7 +97,7 @@ export type FeatureKey =
   | 'tab_registrations' 
   | 'tab_users' 
   | 'tab_profile' 
-  | 'tab_settings' 
+  // | 'tab_settings'  <-- Temporarily removed
   | 'tab_manage_courses' 
   | 'tab_course_approvals' 
   | 'tab_tools'

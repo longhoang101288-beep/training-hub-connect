@@ -31,7 +31,7 @@ const App: React.FC = () => {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(DEFAULT_ROLE_PERMISSIONS);
   
-  // System Settings State (Popup & Webex)
+  // System Settings State (Popup & Webex) - Still loaded for background system use
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
     popup: { isActive: false, imageUrl: '', linkUrl: '' },
     webex: { url: '', username: '', password: '' }
@@ -56,7 +56,7 @@ const App: React.FC = () => {
   });
 
   const [isLoginView, setIsLoginView] = useState(true);
-  const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'settings' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools' | 'manage-roles'>('calendar');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools' | 'manage-roles'>('calendar');
   
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [aiSummary, setAiSummary] = useState<string>('');
@@ -204,13 +204,13 @@ const App: React.FC = () => {
         preferences: currentUser.preferences || {
            emailNotification: true,
            browserNotification: false,
-           compactMode: false
+           compactMode: false,
+           themeColor: 'indigo',
+           language: 'vi'
         }
       });
 
       if (activeTab === 'calendar') {
-          // Smart redirect based on role is now harder with dynamic permissions
-          // We'll just default to what they CAN see
           if (hasPermission('tab_manage_courses') && currentUser.role === UserRole.TRAINER) setActiveTab('manage-courses');
           else if (hasPermission('tab_course_approvals') && currentUser.role === UserRole.KA) setActiveTab('course-approvals');
           else if (hasPermission('tab_catalog') && currentUser.role === UserRole.RSM) setActiveTab('catalog');
@@ -511,14 +511,6 @@ const App: React.FC = () => {
     const selected = courses.filter(c => selectedCourseIds.includes(c.id)); const summary = await generateTrainingPlanSummary(selected, currentUser.region || 'Region'); setAiSummary(summary || ''); setIsGeneratingAi(false);
   };
 
-  const handleSavePopupConfig = async () => {
-    setIsSaving(true); const newSettings: SystemSettings = { ...systemSettings, popup: popupConfigForm }; setSystemSettings(newSettings); await saveToSheet("Settings", popupConfigForm, "update"); isEditingConfig.current = false; setIsSaving(false); alert("Đã lưu cấu hình Popup!");
-  };
-
-  const handleSaveWebexConfig = async () => {
-    setIsSaving(true); const newSettings: SystemSettings = { ...systemSettings, webex: webexConfigForm }; setSystemSettings(newSettings); await saveToSheet("Webex", webexConfigForm, "update"); isEditingConfig.current = false; setIsSaving(false); alert("Đã lưu cấu hình Webex (vào sheet riêng)!");
-  };
-
   const handlePermissionChange = (role: UserRole, feature: FeatureKey, checked: boolean) => {
       // Don't allow removing 'manage_roles' from ADMIN
       if (role === UserRole.ADMIN && feature === 'manage_roles' && !checked) return;
@@ -546,13 +538,11 @@ const App: React.FC = () => {
 
   const handleSavePermissions = async () => {
       setIsSaving(true);
-      
       // Save for each role. In a real DB, this might be a single batch call.
       // With our simple Sheet API, we loop.
       for (const perm of rolePermissions) {
           await saveToSheet("RolePermissions", { role: perm.role, features: perm.features }, "update");
       }
-      
       setIsSaving(false);
       alert("Đã lưu phân quyền thành công!");
   };
@@ -569,7 +559,7 @@ const App: React.FC = () => {
 
   // Render Login
   if (!currentUser) {
-     // ... (Login Code from previous steps, keep it same) ...
+     // ... (Existing Login Render code remains same) ...
      return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
@@ -775,10 +765,6 @@ const App: React.FC = () => {
             <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'profile' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
               Thông tin cá nhân
-            </button>
-            <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'settings' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              Cài đặt tài khoản
             </button>
           </nav>
         </aside>
@@ -1152,50 +1138,6 @@ const App: React.FC = () => {
                 </div>
             )}
 
-            {/* Settings Tab */}
-            {activeTab === 'settings' && hasPermission('tab_settings') && (
-             <div className="max-w-3xl mx-auto space-y-6">
-                 <h2 className="text-2xl font-black text-slate-800">Cài Đặt Hệ Thống</h2>
-                 
-                 {hasPermission('config_popup') && (
-                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                         <h3 className="font-bold text-lg mb-4">Cấu hình Popup Thông báo</h3>
-                         <div className="space-y-4">
-                             <label className="flex items-center gap-2">
-                                 <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, isActive: e.target.checked}); }} className="w-5 h-5 text-indigo-600 rounded" />
-                                 <span className="font-medium text-slate-700">Kích hoạt Popup trang chủ</span>
-                             </label>
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình ảnh Popup</label>
-                                 <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                                 {popupConfigForm.imageUrl && <img src={popupConfigForm.imageUrl} className="mt-2 h-32 object-contain border rounded-lg" />}
-                             </div>
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
-                                 <input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
-                             </div>
-                             <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình Popup'}</button>
-                         </div>
-                     </div>
-                 )}
-
-                 {/* Webex Settings - Dynamic check */}
-                 {hasPermission('config_webex') && (
-                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                         <h3 className="font-bold text-lg mb-4">Cấu hình Webex</h3>
-                         <div className="space-y-4">
-                             <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Webex URL</label><input type="text" value={webexConfigForm.url} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, url: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                             <div className="grid grid-cols-2 gap-4">
-                                 <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username</label><input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" /></div>
-                                 <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Password</label><input type="password" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" /></div>
-                             </div>
-                             <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
-                         </div>
-                     </div>
-                 )}
-             </div>
-            )}
-
             {/* Manage Roles Tab (New) */}
             {activeTab === 'manage-roles' && hasPermission('manage_roles') && (
                 <div className="space-y-6">
@@ -1447,48 +1389,6 @@ const App: React.FC = () => {
             {activeTab === 'tools' && currentUser && hasPermission('tab_tools') && (
                <div className="space-y-6">
                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
-                 
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                     {/* Popup Config - Visible to ADMIN and KA via permissions */}
-                     {hasPermission('config_popup') && (
-                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Popup</h3>
-                                <div className="flex items-center gap-2">
-                                     <span className={`text-xs font-bold ${popupConfigForm.isActive ? 'text-green-600' : 'text-slate-400'}`}>{popupConfigForm.isActive ? 'Bật' : 'Tắt'}</span>
-                                     <button onClick={() => { isEditingConfig.current = true; setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive})); }} className={`w-10 h-5 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}>
-                                        <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-5' : ''}`}></div>
-                                     </button>
-                                </div>
-                             </div>
-                             <div className="flex gap-4">
-                                 <div className="w-24 h-24 shrink-0 rounded-xl bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
-                                    {popupConfigForm.imageUrl ? (<img src={popupConfigForm.imageUrl} className="w-full h-full object-cover" />) : (<span className="text-slate-400 text-[10px]">No Image</span>)}
-                                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
-                                 </div>
-                                 <div className="flex-1 space-y-2">
-                                    <div><input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} placeholder="Link liên kết (https://...)" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-                                    <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Popup'}</button>
-                                 </div>
-                             </div>
-                         </div>
-                     )}
-
-                     {/* Webex Config - Visible to ADMIN ONLY via permissions */}
-                     {hasPermission('config_webex') && (
-                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                             <div className="mb-4"><h3 className="font-bold text-slate-800 text-lg">Cấu Hình Webex</h3><p className="text-xs text-slate-500">Thiết lập thông tin đăng nhập chung.</p></div>
-                             <div className="space-y-3">
-                                 <input type="text" value={webexConfigForm.url} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, url: e.target.value}); }} placeholder="URL Trang Đăng Nhập" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
-                                 <div className="grid grid-cols-2 gap-3">
-                                     <input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} placeholder="Username" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
-                                     <input type="text" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
-                                 </div>
-                                 <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
-                             </div>
-                         </div>
-                     )}
-                  </div>
                  
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                    {/* Webex Tool - Visible via permissions */}
