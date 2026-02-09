@@ -1,5 +1,5 @@
 
-import { Course, User, UserRole, Registration } from './types';
+import { Course, User, UserRole, Registration, FeatureKey, RolePermission } from './types';
 
 // Helper to get dynamic dates relative to today
 const getRelativeDate = (dayOffset: number, hour: number = 8, minute: number = 0) => {
@@ -99,4 +99,51 @@ export const MOCK_REGISTRATIONS: Registration[] = [
   { id: 'r_mock_2', courseId: 'c2', asmId: 'u2', region: 'Hà Nội', date: MOCK_COURSES[1].startDate, status: 'pending' },
   { id: 'r_mock_3', courseId: 'c3', asmId: 'u3', region: 'Hồ Chí Minh', date: MOCK_COURSES[2].startDate, status: 'confirmed' },
   { id: 'r_mock_4', courseId: 'c1', asmId: 'u5', region: 'Miền Bắc 1', date: MOCK_COURSES[0].startDate, status: 'confirmed' }
+];
+
+// --- PERMISSIONS CONFIG ---
+
+export const FEATURE_LABELS: Record<FeatureKey, string> = {
+  tab_calendar: 'Xem Lịch Đào Tạo',
+  tab_catalog: 'Xem/Đăng Ký Môn Học',
+  tab_registrations: 'Môn Đã Đăng Ký',
+  tab_users: 'Quản Lý Users (Admin)',
+  tab_profile: 'Trang Cá Nhân',
+  tab_settings: 'Cài Đặt Hệ Thống',
+  tab_manage_courses: 'Tạo/Quản Lý Môn Học',
+  tab_course_approvals: 'Duyệt Môn & Đăng Ký',
+  tab_tools: 'Tab Công Cụ & Tiện Ích',
+  tool_webex: 'Tạo Link Họp Webex',
+  tool_attendance: 'Quản Lý Điểm Danh',
+  tool_statistics: 'Xem Báo Cáo Thống Kê',
+  config_popup: 'Cấu Hình Popup (Admin/KA)',
+  config_webex: 'Cấu Hình Webex (Admin)',
+  manage_roles: 'Quản Lý Phân Quyền (Admin)'
+};
+
+export const DEFAULT_ROLE_PERMISSIONS: RolePermission[] = [
+  {
+    role: UserRole.ADMIN,
+    features: ['tab_calendar', 'tab_users', 'tab_profile', 'tab_settings', 'tab_manage_courses', 'tab_course_approvals', 'tab_tools', 'tool_webex', 'tool_attendance', 'tool_statistics', 'config_popup', 'config_webex', 'manage_roles']
+  },
+  {
+    role: UserRole.ASM,
+    features: ['tab_calendar', 'tab_profile', 'tab_tools', 'tool_attendance', 'tool_statistics'] // Default ASM features
+  },
+  {
+    role: UserRole.TRAINER,
+    features: ['tab_calendar', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tool_webex', 'tool_attendance', 'tool_statistics']
+  },
+  {
+    role: UserRole.RSM,
+    features: ['tab_calendar', 'tab_catalog', 'tab_registrations', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tool_attendance', 'tool_statistics']
+  },
+  {
+    role: UserRole.PM,
+    features: ['tab_calendar', 'tab_manage_courses', 'tab_profile', 'tab_tools', 'tool_attendance', 'tool_statistics']
+  },
+  {
+    role: UserRole.KA,
+    features: ['tab_calendar', 'tab_manage_courses', 'tab_course_approvals', 'tab_profile', 'tab_settings', 'tab_tools', 'tool_webex', 'tool_attendance', 'tool_statistics', 'config_popup']
+  }
 ];

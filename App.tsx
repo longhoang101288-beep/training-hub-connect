@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord, WebexConfig } from './types';
-import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES, MOCK_REGISTRATIONS } from './constants';
+import { User, UserRole, Course, Registration, SystemSettings, PopupConfig, CourseApprovalStatus, AttendanceRecord, WebexConfig, FeatureKey, RolePermission } from './types';
+import { ASM_REGIONS, TRAINER_REGIONS, INITIAL_USERS, MOCK_COURSES, MOCK_REGISTRATIONS, DEFAULT_ROLE_PERMISSIONS, FEATURE_LABELS } from './constants';
 import DashboardHeader from './components/DashboardHeader';
 import CourseCalendar from './components/CourseCalendar';
 import BottomNavigation from './components/BottomNavigation';
@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(DEFAULT_ROLE_PERMISSIONS);
   
   // System Settings State (Popup & Webex)
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
@@ -55,7 +56,7 @@ const App: React.FC = () => {
   });
 
   const [isLoginView, setIsLoginView] = useState(true);
-  const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'settings' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools'>('calendar');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'calendar' | 'registrations' | 'users' | 'profile' | 'settings' | 'manage-courses' | 'approvals' | 'course-approvals' | 'tools' | 'manage-roles'>('calendar');
   
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
   const [aiSummary, setAiSummary] = useState<string>('');
@@ -111,10 +112,23 @@ const App: React.FC = () => {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
 
+  // --- DYNAMIC PERMISSION CHECK ---
+  const hasPermission = (feature: FeatureKey) => {
+    if (!currentUser) return false;
+    // Admins always have certain permissions (like managing roles) if something breaks
+    if (currentUser.role === UserRole.ADMIN && feature === 'manage_roles') return true;
+    
+    const roleConfig = rolePermissions.find(rp => rp.role === currentUser.role);
+    if (!roleConfig) {
+       // Fallback for new roles not in DB yet
+       return DEFAULT_ROLE_PERMISSIONS.find(rp => rp.role === currentUser.role)?.features.includes(feature) || false;
+    }
+    return roleConfig.features.includes(feature);
+  };
+
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
     if (isBackground && (isEditingConfig.current || isSavingRef.current)) {
-        console.log("Skipping background sync: User is editing or saving.");
         return;
     }
 
@@ -125,7 +139,6 @@ const App: React.FC = () => {
       const data = await fetchAllData();
       
       if (isBackground && (isEditingConfig.current || isSavingRef.current)) {
-          console.log("Discarding stale background data.");
           return;
       }
 
@@ -133,6 +146,9 @@ const App: React.FC = () => {
         setUsers(data.users || []);
         setCourses(data.courses || []);
         setRegistrations(data.registrations || []);
+        if (data.rolePermissions && data.rolePermissions.length > 0) {
+            setRolePermissions(data.rolePermissions);
+        }
         
         const loadedSettings: SystemSettings = {
             popup: data.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' },
@@ -156,6 +172,7 @@ const App: React.FC = () => {
         setUsers(INITIAL_USERS);
         setCourses(MOCK_COURSES);
         setRegistrations(MOCK_REGISTRATIONS);
+        setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
         setDbConnected(false);
       }
     } finally {
@@ -192,13 +209,14 @@ const App: React.FC = () => {
       });
 
       if (activeTab === 'calendar') {
-          if (currentUser.role === UserRole.TRAINER) setActiveTab('manage-courses');
-          else if (currentUser.role === UserRole.KA) setActiveTab('course-approvals');
-          else if (currentUser.role === UserRole.RSM) setActiveTab('catalog');
-          else if (currentUser.role === UserRole.PM) setActiveTab('manage-courses');
+          // Smart redirect based on role is now harder with dynamic permissions
+          // We'll just default to what they CAN see
+          if (hasPermission('tab_manage_courses') && currentUser.role === UserRole.TRAINER) setActiveTab('manage-courses');
+          else if (hasPermission('tab_course_approvals') && currentUser.role === UserRole.KA) setActiveTab('course-approvals');
+          else if (hasPermission('tab_catalog') && currentUser.role === UserRole.RSM) setActiveTab('catalog');
       }
     }
-  }, [currentUser]);
+  }, [currentUser, rolePermissions]); // Re-run if permissions load later
 
   // --- HELPER FUNCTIONS ---
   const formatDate = (dateString?: string) => {
@@ -363,7 +381,7 @@ const App: React.FC = () => {
     try { 
         await seedDatabase(INITIAL_USERS, MOCK_COURSES); 
         await delay(5000); 
-        alert("Khôi phục thành công! Hệ thống đang tải lại dữ liệu mới...");
+        alert("Khôi phục thành công! Hệ thống đang tải lại dữ liệu mới.");
         await loadData(); 
     } catch (error) { 
         console.error(error); 
@@ -391,6 +409,7 @@ const App: React.FC = () => {
            setUsers(freshData.users); setCourses(freshData.courses || []); setRegistrations(freshData.registrations || []);
            const loadedSettings = { popup: freshData.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' }, webex: freshData.settings?.webex || { url: '', username: '', password: '' } };
            setSystemSettings(loadedSettings); setDbConnected(true); usersToCheck = freshData.users;
+           if(freshData.rolePermissions) setRolePermissions(freshData.rolePermissions);
         }
         if (!usersToCheck || usersToCheck.length === 0) { if (confirm("CẢNH BÁO: Dữ liệu người dùng trên Google Sheet đang TRỐNG (có thể do bị xóa).\n\nBạn có muốn KHÔI PHỤC lại tài khoản Admin và dữ liệu mẫu ngay bây giờ không?")) { await handleSeedData(); setIsLoggingIn(false); return; } }
         const inputUsername = authData.username.trim().toLowerCase();
@@ -398,12 +417,7 @@ const App: React.FC = () => {
         const user = usersToCheck.find(u => String(u.username).trim().toLowerCase() === inputUsername && String(u.password).trim() === inputPassword );
         if (user) {
           setCurrentUser(user); localStorage.setItem('currentUser', JSON.stringify(user));
-          if (user.role === UserRole.ADMIN) setActiveTab('calendar');
-          else if (user.role === UserRole.TRAINER) setActiveTab('manage-courses');
-          else if (user.role === UserRole.KA) setActiveTab('course-approvals');
-          else if (user.role === UserRole.RSM) setActiveTab('catalog');
-          else if (user.role === UserRole.PM) setActiveTab('manage-courses');
-          else setActiveTab('calendar'); 
+          // Redirect logic moved to useEffect
         } else { alert("Sai tên đăng nhập hoặc mật khẩu! (Lưu ý: Nếu đang Offline, chỉ dùng được tài khoản mẫu trong code)"); }
       } else {
         if (users.find(u => u.username === authData.username)) { alert("Tên đăng nhập đã tồn tại!"); setIsLoggingIn(false); return; }
@@ -505,6 +519,44 @@ const App: React.FC = () => {
     setIsSaving(true); const newSettings: SystemSettings = { ...systemSettings, webex: webexConfigForm }; setSystemSettings(newSettings); await saveToSheet("Webex", webexConfigForm, "update"); isEditingConfig.current = false; setIsSaving(false); alert("Đã lưu cấu hình Webex (vào sheet riêng)!");
   };
 
+  const handlePermissionChange = (role: UserRole, feature: FeatureKey, checked: boolean) => {
+      // Don't allow removing 'manage_roles' from ADMIN
+      if (role === UserRole.ADMIN && feature === 'manage_roles' && !checked) return;
+
+      setRolePermissions(prev => {
+          const newPerms = [...prev];
+          const roleIndex = newPerms.findIndex(p => p.role === role);
+          
+          if (roleIndex === -1) {
+              // Should not happen with default data, but safe fallback
+              newPerms.push({ role, features: [feature] });
+          } else {
+              const currentFeatures = newPerms[roleIndex].features;
+              if (checked) {
+                  if (!currentFeatures.includes(feature)) {
+                      newPerms[roleIndex] = { ...newPerms[roleIndex], features: [...currentFeatures, feature] };
+                  }
+              } else {
+                  newPerms[roleIndex] = { ...newPerms[roleIndex], features: currentFeatures.filter(f => f !== feature) };
+              }
+          }
+          return newPerms;
+      });
+  };
+
+  const handleSavePermissions = async () => {
+      setIsSaving(true);
+      
+      // Save for each role. In a real DB, this might be a single batch call.
+      // With our simple Sheet API, we loop.
+      for (const perm of rolePermissions) {
+          await saveToSheet("RolePermissions", { role: perm.role, features: perm.features }, "update");
+      }
+      
+      setIsSaving(false);
+      alert("Đã lưu phân quyền thành công!");
+  };
+
   // Render Loading
   if (isLoading) {
     return (
@@ -517,6 +569,7 @@ const App: React.FC = () => {
 
   // Render Login
   if (!currentUser) {
+     // ... (Login Code from previous steps, keep it same) ...
      return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
@@ -663,58 +716,61 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <nav className="flex-1 px-4 space-y-1">
-            {currentUser.role === UserRole.ADMIN && (
-              <>
+          <nav className="flex-1 px-4 space-y-1 overflow-y-auto max-h-[calc(100vh-250px)]">
+            <button onClick={() => setActiveTab('calendar')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg>
+              Lịch đào tạo
+            </button>
+
+            {hasPermission('tab_users') && (
                 <button onClick={() => setActiveTab('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
                   Quản lý Users
                 </button>
-                <button onClick={() => setActiveTab('course-approvals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'course-approvals' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  Duyệt Đăng Ký
-                </button>
-              </>
             )}
-            
-            {(currentUser.role === UserRole.TRAINER || currentUser.role === UserRole.KA || currentUser.role === UserRole.PM || currentUser.role === UserRole.RSM || currentUser.role === UserRole.ADMIN) && (
+
+            {hasPermission('tab_manage_courses') && (
                <button onClick={() => setActiveTab('manage-courses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'manage-courses' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                 {['TRAINER', 'KA', 'ADMIN', 'RSM'].includes(currentUser.role) ? 'Quản lý Môn học' : 'Tạo Môn học'}
                </button>
             )}
 
-            {currentUser.role === UserRole.KA && (
+            {hasPermission('tab_course_approvals') && (
                <button onClick={() => setActiveTab('course-approvals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'course-approvals' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   Duyệt Môn & Đăng Ký
                </button>
             )}
 
-            {currentUser.role === UserRole.RSM && (
+            {hasPermission('tab_catalog') && (
                <button onClick={() => setActiveTab('catalog')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'catalog' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                 Đăng ký Môn học
               </button>
             )}
 
-            <button onClick={() => setActiveTab('calendar')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg>
-              Lịch đào tạo
-            </button>
-
-            {currentUser.role === UserRole.RSM && (
+            {hasPermission('tab_registrations') && (
               <button onClick={() => setActiveTab('registrations')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'registrations' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                 Đã đăng ký
               </button>
             )}
             
-            <button onClick={() => setActiveTab('tools')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'tools' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                Công cụ & Tiện ích
-            </button>
+            {hasPermission('tab_tools') && (
+                <button onClick={() => setActiveTab('tools')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'tools' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                    Công cụ & Tiện ích
+                </button>
+            )}
             
+            {hasPermission('manage_roles') && (
+                <button onClick={() => setActiveTab('manage-roles')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'manage-roles' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    Quản Lý Phân Quyền
+                </button>
+            )}
+
             <div className="pt-4 pb-2 border-t border-slate-100 mt-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cá nhân</div>
             <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium ${activeTab === 'profile' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
@@ -727,7 +783,7 @@ const App: React.FC = () => {
           </nav>
         </aside>
 
-        <BottomNavigation activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} />
+        <BottomNavigation activeTab={activeTab} setActiveTab={setActiveTab} role={currentUser.role} permissions={rolePermissions} />
 
         <section className="flex-1 overflow-y-auto bg-slate-50 p-4 lg:p-6 pb-24 lg:pb-6">
           <div className="max-w-7xl mx-auto">
@@ -741,7 +797,7 @@ const App: React.FC = () => {
                </div>
             )}
 
-            {activeTab === 'catalog' && (
+            {activeTab === 'catalog' && hasPermission('tab_catalog') && (
               <div className="space-y-6 pb-20">
                   <div className="flex justify-between items-center">
                       <h2 className="text-2xl font-black text-slate-800">Đăng Ký Môn Học</h2>
@@ -871,7 +927,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'registrations' && (
+            {activeTab === 'registrations' && hasPermission('tab_registrations') && (
               <div className="space-y-6">
                   <h2 className="text-2xl font-black text-slate-800">Danh Sách Đã Đăng Ký</h2>
                   {registrations.filter(r => r.asmId === currentUser.id).length === 0 ? (
@@ -924,7 +980,7 @@ const App: React.FC = () => {
             )}
 
             {/* --- USER MANAGEMENT --- */}
-            {activeTab === 'users' && currentUser.role === UserRole.ADMIN && (
+            {activeTab === 'users' && hasPermission('tab_users') && (
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <h2 className="text-2xl font-black text-slate-800">Quản lý người dùng</h2>
@@ -1063,7 +1119,7 @@ const App: React.FC = () => {
             )}
 
             {/* Profile Tab */}
-            {activeTab === 'profile' && currentUser && (
+            {activeTab === 'profile' && currentUser && hasPermission('tab_profile') && (
                 <div className="max-w-3xl mx-auto">
                     <h2 className="text-2xl font-black text-slate-800 mb-6">Thông Tin Cá Nhân</h2>
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
@@ -1097,30 +1153,34 @@ const App: React.FC = () => {
             )}
 
             {/* Settings Tab */}
-            {activeTab === 'settings' && (
+            {activeTab === 'settings' && hasPermission('tab_settings') && (
              <div className="max-w-3xl mx-auto space-y-6">
                  <h2 className="text-2xl font-black text-slate-800">Cài Đặt Hệ Thống</h2>
-                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                     <h3 className="font-bold text-lg mb-4">Cấu hình Popup Thông báo</h3>
-                     <div className="space-y-4">
-                         <label className="flex items-center gap-2">
-                             <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, isActive: e.target.checked}); }} className="w-5 h-5 text-indigo-600 rounded" />
-                             <span className="font-medium text-slate-700">Kích hoạt Popup trang chủ</span>
-                         </label>
-                         <div>
-                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình ảnh Popup</label>
-                             <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                             {popupConfigForm.imageUrl && <img src={popupConfigForm.imageUrl} className="mt-2 h-32 object-contain border rounded-lg" />}
+                 
+                 {hasPermission('config_popup') && (
+                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                         <h3 className="font-bold text-lg mb-4">Cấu hình Popup Thông báo</h3>
+                         <div className="space-y-4">
+                             <label className="flex items-center gap-2">
+                                 <input type="checkbox" checked={popupConfigForm.isActive} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, isActive: e.target.checked}); }} className="w-5 h-5 text-indigo-600 rounded" />
+                                 <span className="font-medium text-slate-700">Kích hoạt Popup trang chủ</span>
+                             </label>
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hình ảnh Popup</label>
+                                 <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'popup')} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                                 {popupConfigForm.imageUrl && <img src={popupConfigForm.imageUrl} className="mt-2 h-32 object-contain border rounded-lg" />}
+                             </div>
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
+                                 <input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
+                             </div>
+                             <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình Popup'}</button>
                          </div>
-                         <div>
-                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Link liên kết (Tùy chọn)</label>
-                             <input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://..." />
-                         </div>
-                         <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình Popup'}</button>
                      </div>
-                 </div>
-                 {/* Webex Settings - Admin only */}
-                 {currentUser.role === UserRole.ADMIN && (
+                 )}
+
+                 {/* Webex Settings - Dynamic check */}
+                 {hasPermission('config_webex') && (
                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                          <h3 className="font-bold text-lg mb-4">Cấu hình Webex</h3>
                          <div className="space-y-4">
@@ -1136,8 +1196,59 @@ const App: React.FC = () => {
              </div>
             )}
 
+            {/* Manage Roles Tab (New) */}
+            {activeTab === 'manage-roles' && hasPermission('manage_roles') && (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-black text-slate-800">Quản Lý Phân Quyền</h2>
+                        <button onClick={handleSavePermissions} disabled={isSaving} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2">
+                            {isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}
+                        </button>
+                    </div>
+                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm overflow-x-auto">
+                        <table className="w-full text-left text-sm min-w-[800px]">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                                <tr>
+                                    <th className="p-4 font-black text-slate-600 uppercase text-xs w-64 sticky left-0 bg-slate-50 z-10 border-r border-slate-200">Tính Năng</th>
+                                    {Object.values(UserRole).map(role => (
+                                        <th key={role} className="p-4 font-black text-slate-600 uppercase text-xs text-center">{role}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {(Object.keys(FEATURE_LABELS) as FeatureKey[]).map(featureKey => (
+                                    <tr key={featureKey} className="hover:bg-slate-50">
+                                        <td className="p-4 font-bold text-slate-700 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-sm">{FEATURE_LABELS[featureKey]}</td>
+                                        {Object.values(UserRole).map(role => {
+                                            const roleConfig = rolePermissions.find(rp => rp.role === role) || DEFAULT_ROLE_PERMISSIONS.find(rp => rp.role === role);
+                                            const isChecked = roleConfig?.features.includes(featureKey);
+                                            const isLocked = role === UserRole.ADMIN && featureKey === 'manage_roles'; // Admin cannot remove manage_roles from self
+
+                                            return (
+                                                <td key={`${role}-${featureKey}`} className="p-4 text-center">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isChecked || false} 
+                                                        onChange={(e) => handlePermissionChange(role, featureKey, e.target.checked)}
+                                                        disabled={isLocked || isSaving}
+                                                        className={`w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 ${isLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                    />
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p className="text-xs text-slate-500 italic bg-amber-50 p-3 rounded-lg border border-amber-100">
+                        * Lưu ý: Thay đổi quyền hạn sẽ có hiệu lực ngay lập tức. Hãy cẩn thận khi bỏ quyền "Quản lý Phân quyền" của Admin.
+                    </p>
+                </div>
+            )}
+
             {/* Manage Courses Tab */}
-            {activeTab === 'manage-courses' && (
+            {activeTab === 'manage-courses' && hasPermission('tab_manage_courses') && (
                 <div className="space-y-6">
                     <div className="flex justify-between items-center">
                         <h2 className="text-2xl font-black text-slate-800">Quản Lý Môn Học</h2>
@@ -1249,7 +1360,7 @@ const App: React.FC = () => {
             )}
 
             {/* RESTORED COURSE APPROVALS TAB */}
-            {activeTab === 'course-approvals' && (
+            {activeTab === 'course-approvals' && hasPermission('tab_course_approvals') && (
                 <div className="space-y-8">
                     {/* SECTION 1: DUYỆT MÔN HỌC */}
                     <div className="space-y-4">
@@ -1333,13 +1444,55 @@ const App: React.FC = () => {
             )}
 
             {/* RESTORED TOOLS TAB (Without Personal Schedule) */}
-            {activeTab === 'tools' && currentUser && (
+            {activeTab === 'tools' && currentUser && hasPermission('tab_tools') && (
                <div className="space-y-6">
                  <h2 className="text-2xl font-black text-slate-800">Công Cụ & Tiện Ích</h2>
                  
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                     {/* Popup Config - Visible to ADMIN and KA via permissions */}
+                     {hasPermission('config_popup') && (
+                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                             <div className="flex items-center justify-between mb-4">
+                                <h3 className="font-bold text-slate-800 text-lg">Cấu Hình Popup</h3>
+                                <div className="flex items-center gap-2">
+                                     <span className={`text-xs font-bold ${popupConfigForm.isActive ? 'text-green-600' : 'text-slate-400'}`}>{popupConfigForm.isActive ? 'Bật' : 'Tắt'}</span>
+                                     <button onClick={() => { isEditingConfig.current = true; setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive})); }} className={`w-10 h-5 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                        <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-5' : ''}`}></div>
+                                     </button>
+                                </div>
+                             </div>
+                             <div className="flex gap-4">
+                                 <div className="w-24 h-24 shrink-0 rounded-xl bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative group">
+                                    {popupConfigForm.imageUrl ? (<img src={popupConfigForm.imageUrl} className="w-full h-full object-cover" />) : (<span className="text-slate-400 text-[10px]">No Image</span>)}
+                                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => handleImageUpload(e, 'popup')} />
+                                 </div>
+                                 <div className="flex-1 space-y-2">
+                                    <div><input type="text" value={popupConfigForm.linkUrl} onChange={e => { isEditingConfig.current = true; setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value}); }} placeholder="Link liên kết (https://...)" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+                                    <button onClick={handleSavePopupConfig} disabled={isSaving} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Popup'}</button>
+                                 </div>
+                             </div>
+                         </div>
+                     )}
+
+                     {/* Webex Config - Visible to ADMIN ONLY via permissions */}
+                     {hasPermission('config_webex') && (
+                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                             <div className="mb-4"><h3 className="font-bold text-slate-800 text-lg">Cấu Hình Webex</h3><p className="text-xs text-slate-500">Thiết lập thông tin đăng nhập chung.</p></div>
+                             <div className="space-y-3">
+                                 <input type="text" value={webexConfigForm.url} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, url: e.target.value}); }} placeholder="URL Trang Đăng Nhập" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                                 <div className="grid grid-cols-2 gap-3">
+                                     <input type="text" value={webexConfigForm.username} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, username: e.target.value}); }} placeholder="Username" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                                     <input type="text" value={webexConfigForm.password} onChange={e => { isEditingConfig.current = true; setWebexConfigForm({...webexConfigForm, password: e.target.value}); }} placeholder="Password" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium" />
+                                 </div>
+                                 <button onClick={handleSaveWebexConfig} disabled={isSaving} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors">{isSaving ? 'Đang lưu...' : 'Lưu Webex'}</button>
+                             </div>
+                         </div>
+                     )}
+                  </div>
+                 
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                   {/* Webex Tool - Visible to ADMIN, KA, TRAINER */}
-                   {['ADMIN', 'KA', 'TRAINER'].includes(currentUser.role) && (
+                   {/* Webex Tool - Visible via permissions */}
+                   {hasPermission('tool_webex') && (
                        <div 
                           onClick={() => setActiveTool('webex')}
                           className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden"
@@ -1351,9 +1504,13 @@ const App: React.FC = () => {
                        </div>
                    )}
 
-                   <div onClick={() => setActiveTool('attendance')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Quản Lý Điểm Danh</h3><p className="text-xs text-slate-500">Upload và xử lý file sau đào tạo.</p></div>
+                   {hasPermission('tool_attendance') && (
+                       <div onClick={() => setActiveTool('attendance')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Quản Lý Điểm Danh</h3><p className="text-xs text-slate-500">Upload và xử lý file sau đào tạo.</p></div>
+                   )}
                    
-                   <div onClick={() => setActiveTool('statistics')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Báo Cáo Thống Kê</h3><p className="text-xs text-slate-500">Xem tiến độ đào tạo vùng.</p></div>
+                   {hasPermission('tool_statistics') && (
+                       <div onClick={() => setActiveTool('statistics')} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"><div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg></div><h3 className="font-bold text-slate-800 mb-1">Báo Cáo Thống Kê</h3><p className="text-xs text-slate-500">Xem tiến độ đào tạo vùng.</p></div>
+                   )}
                  </div>
                  
                  {activeTool === 'webex' && (

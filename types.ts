@@ -72,7 +72,6 @@ export interface SystemSettings {
   webex?: WebexConfig;
 }
 
-// Updated based on user request
 export interface AttendanceRecord {
   id: string; // ID
   date: string; // Ngày
@@ -86,5 +85,28 @@ export interface AttendanceRecord {
   asm: string; // ASM
   asmEmail: string; // Email ASM
   feedback: string; // Feedback
-  rating?: number; // Optional: Keep for CSAT calculation if needed, otherwise derived from feedback or kept hidden
+  rating?: number; // Optional
+}
+
+// --- PERMISSION SYSTEM ---
+export type FeatureKey = 
+  | 'tab_calendar' 
+  | 'tab_catalog' 
+  | 'tab_registrations' 
+  | 'tab_users' 
+  | 'tab_profile' 
+  | 'tab_settings' 
+  | 'tab_manage_courses' 
+  | 'tab_course_approvals' 
+  | 'tab_tools'
+  | 'tool_webex' 
+  | 'tool_attendance' 
+  | 'tool_statistics'
+  | 'config_popup'
+  | 'config_webex'
+  | 'manage_roles'; // New: Access Role Management
+
+export interface RolePermission {
+  role: UserRole;
+  features: FeatureKey[];
 }
