@@ -9,7 +9,7 @@ import { User, Course, Registration } from "../types";
 // 4. Who has access: Anyone (Bất kỳ ai) -> CỰC KỲ QUAN TRỌNG để tránh lỗi Failed to fetch
 // 5. Deploy -> Copy "Web App URL" và dán vào biến API_URL dưới đây thay cho link mẫu
 // =============================================================================================
-const API_URL = "https://script.google.com/macros/s/AKfycbxl9e5UsU7AZlgXTj_ESerpzoIVOLyns0n2cH25tqpXuCUmk7CQ7yMfTE2c3Wtf9uigZA/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbwtEgFZN3xJWXmttPb7E-RGmuji4X_Hn_jMMU-W2GiBUClr-y7CaCxw9njb2T1k4Mq6vQ/exec"; 
 
 export const fetchAllData = async () => {
   try {
@@ -60,7 +60,7 @@ export const fetchAllData = async () => {
 };
 
 export const saveToSheet = async (
-  sheetName: "Users" | "Courses" | "Registrations" | "Settings" | "Attendance", 
+  sheetName: "Users" | "Courses" | "Registrations" | "Settings" | "Attendance" | "Webex", 
   payload: any, 
   action: "add" | "update" | "delete" = "add"
 ) => {

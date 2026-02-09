@@ -33,6 +33,9 @@ const App: React.FC = () => {
   const [popupConfigForm, setPopupConfigForm] = useState<PopupConfig>({ isActive: false, imageUrl: '', linkUrl: '' });
   const [webexConfigForm, setWebexConfigForm] = useState<WebexConfig>({ url: '', username: '', password: '' });
   
+  // Ref to track if user is currently editing settings (to prevent background overwrite)
+  const isEditingConfig = useRef(false);
+
   // Initialize currentUser from localStorage to persist login across refreshes
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
@@ -105,7 +108,8 @@ const App: React.FC = () => {
 
   // --- DATA LOADING ---
   const loadData = async (isBackground = false) => {
-    if (isBackground && !isPollingAllowed.current) return;
+    // If saving or user is typing settings, do not fetch in background
+    if (isBackground && (!isPollingAllowed.current || isEditingConfig.current)) return;
 
     if (!isBackground) setIsLoading(true);
     else setIsSyncing(true);
@@ -125,8 +129,13 @@ const App: React.FC = () => {
         };
 
         setSystemSettings(loadedSettings);
-        setPopupConfigForm(loadedSettings.popup);
-        setWebexConfigForm(loadedSettings.webex || { url: '', username: '', password: '' });
+        
+        // CRITICAL FIX: Only update form state if NOT in background mode OR if not currently editing
+        // This prevents overwriting user input while they are typing during a background sync
+        if (!isEditingConfig.current) {
+            setPopupConfigForm(loadedSettings.popup);
+            setWebexConfigForm(loadedSettings.webex || { url: '', username: '', password: '' });
+        }
         
         setDbConnected(true);
       } else {
@@ -230,6 +239,10 @@ const App: React.FC = () => {
       return;
     }
 
+    if (target === 'popup') {
+        isEditingConfig.current = true;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -274,7 +287,6 @@ const App: React.FC = () => {
 
   // --- DOWNLOAD TEMPLATE ---
   const handleDownloadTemplate = () => {
-     // Prepare dummy data with exact headers
      const headers = [
          {
              "ID": "VD: 1001",
@@ -293,21 +305,9 @@ const App: React.FC = () => {
      ];
 
      const ws = XLSX.utils.json_to_sheet(headers);
-     
-     // Set column widths for better readability
      const wscols = [
-         {wch: 10}, // ID
-         {wch: 12}, // Ngay
-         {wch: 10}, // Check in
-         {wch: 10}, // Check out
-         {wch: 25}, // Course
-         {wch: 20}, // Name
-         {wch: 10}, // Inside
-         {wch: 25}, // Address
-         {wch: 25}, // Email
-         {wch: 15}, // ASM
-         {wch: 25}, // Email ASM
-         {wch: 30}  // Feedback
+         {wch: 10}, {wch: 12}, {wch: 10}, {wch: 10}, {wch: 25}, {wch: 20}, 
+         {wch: 10}, {wch: 25}, {wch: 25}, {wch: 15}, {wch: 25}, {wch: 30}
      ];
      ws['!cols'] = wscols;
 
@@ -475,6 +475,7 @@ const App: React.FC = () => {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true); 
+    isEditingConfig.current = false;
 
     try {
       if (isLoginView) {
@@ -849,19 +850,43 @@ const App: React.FC = () => {
     setIsGeneratingAi(false);
   };
 
-  const handleSaveSettings = async () => {
-     setIsSaving(true);
-     const newSettings: SystemSettings = {
-         popup: popupConfigForm,
-         webex: webexConfigForm
-     };
-     setSystemSettings(newSettings);
-     
-     // Save both settings
-     await saveToSheet("Settings", newSettings, "update");
-     
-     setIsSaving(false);
-     alert("Đã lưu cấu hình hệ thống (Popup & Webex)!");
+  const handleSavePopupConfig = async () => {
+    setIsSaving(true);
+    // Pause background polling
+    isPollingAllowed.current = false;
+    
+    const newSettings: SystemSettings = {
+        ...systemSettings,
+        popup: popupConfigForm
+    };
+    setSystemSettings(newSettings);
+    
+    await saveToSheet("Settings", popupConfigForm, "update");
+    
+    isEditingConfig.current = false;
+    setIsSaving(false);
+    isPollingAllowed.current = true;
+    alert("Đã lưu cấu hình Popup!");
+  };
+
+  const handleSaveWebexConfig = async () => {
+    setIsSaving(true);
+    // Pause background polling
+    isPollingAllowed.current = false;
+    
+    const newSettings: SystemSettings = {
+        ...systemSettings,
+        webex: webexConfigForm
+    };
+    setSystemSettings(newSettings);
+    
+    // Save to the dedicated "Webex" sheet
+    await saveToSheet("Webex", webexConfigForm, "update");
+    
+    isEditingConfig.current = false;
+    setIsSaving(false);
+    isPollingAllowed.current = true;
+    alert("Đã lưu cấu hình Webex (vào sheet riêng)!");
   };
 
   if (isLoading) {
@@ -1378,7 +1403,10 @@ const App: React.FC = () => {
                                     {popupConfigForm.isActive ? 'Bật' : 'Tắt'}
                                  </span>
                                  <button 
-                                   onClick={() => setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive}))}
+                                   onClick={() => {
+                                       isEditingConfig.current = true;
+                                       setPopupConfigForm(prev => ({...prev, isActive: !prev.isActive}));
+                                   }}
                                    className={`w-10 h-5 rounded-full p-1 transition-colors ${popupConfigForm.isActive ? 'bg-green-500' : 'bg-slate-300'}`}
                                  >
                                     <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${popupConfigForm.isActive ? 'translate-x-5' : ''}`}></div>
@@ -1400,13 +1428,16 @@ const App: React.FC = () => {
                                     <input 
                                         type="text" 
                                         value={popupConfigForm.linkUrl} 
-                                        onChange={e => setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value})}
+                                        onChange={e => {
+                                            isEditingConfig.current = true;
+                                            setPopupConfigForm({...popupConfigForm, linkUrl: e.target.value});
+                                        }}
                                         placeholder="Link liên kết (https://...)"
                                         className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                                     />
                                 </div>
                                 <button 
-                                    onClick={handleSaveSettings}
+                                    onClick={handleSavePopupConfig}
                                     disabled={isSaving}
                                     className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-indigo-700 transition-colors"
                                 >
@@ -1426,7 +1457,10 @@ const App: React.FC = () => {
                              <input 
                                 type="text"
                                 value={webexConfigForm.url}
-                                onChange={e => setWebexConfigForm({...webexConfigForm, url: e.target.value})}
+                                onChange={e => {
+                                    isEditingConfig.current = true;
+                                    setWebexConfigForm({...webexConfigForm, url: e.target.value});
+                                }}
                                 placeholder="URL Trang Đăng Nhập (https://signin.webex.com...)"
                                 className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
                              />
@@ -1434,20 +1468,26 @@ const App: React.FC = () => {
                                  <input 
                                     type="text"
                                     value={webexConfigForm.username}
-                                    onChange={e => setWebexConfigForm({...webexConfigForm, username: e.target.value})}
+                                    onChange={e => {
+                                        isEditingConfig.current = true;
+                                        setWebexConfigForm({...webexConfigForm, username: e.target.value});
+                                    }}
                                     placeholder="Username / Email"
                                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
                                  />
                                  <input 
                                     type="text"
                                     value={webexConfigForm.password}
-                                    onChange={e => setWebexConfigForm({...webexConfigForm, password: e.target.value})}
+                                    onChange={e => {
+                                        isEditingConfig.current = true;
+                                        setWebexConfigForm({...webexConfigForm, password: e.target.value});
+                                    }}
                                     placeholder="Password"
                                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium"
                                  />
                              </div>
                              <button 
-                                onClick={handleSaveSettings}
+                                onClick={handleSaveWebexConfig}
                                 disabled={isSaving}
                                 className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors"
                              >
