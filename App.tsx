@@ -239,12 +239,6 @@ const App: React.FC = () => {
            language: 'vi'
         }
       });
-
-      // Default tab logic
-      if (activeTab === 'calendar') {
-          // Only switch if the user actually has permission for the clearer specific tab
-          // But keep calendar as default if they just logged in
-      }
     }
   }, [currentUser]); 
 
@@ -716,7 +710,6 @@ const App: React.FC = () => {
 
   // Render Login
   if (!currentUser) {
-     // ... (Existing Login Render code remains same) ...
      return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
@@ -947,6 +940,77 @@ const App: React.FC = () => {
                </div>
             )}
             
+            {activeTab === 'users' && hasPermission('tab_users') && (
+               <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-black text-slate-800">Quản Lý Users</h2>
+                    <button onClick={() => setIsAddingUser(!isAddingUser)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all flex items-center gap-2">
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                       {isAddingUser ? 'Đóng' : 'Thêm User'}
+                    </button>
+                  </div>
+
+                  {isAddingUser && (
+                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-100 animate-in slide-in-from-top-4">
+                      <h3 className="font-bold text-lg mb-4 text-slate-800">Thêm Người Dùng Mới</h3>
+                      <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input required type="text" placeholder="Tên hiển thị" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+                        <input required type="text" placeholder="Tên đăng nhập" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
+                        <input required type="password" placeholder="Mật khẩu" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+                        <select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})}>
+                           {Object.values(UserRole).map(role => <option key={role} value={role}>{role}</option>)}
+                        </select>
+                        {newUser.role !== UserRole.ADMIN && (
+                            <select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newUser.region} onChange={e => setNewUser({...newUser, region: e.target.value})}>
+                               {(newUser.role === UserRole.TRAINER ? TRAINER_REGIONS : ASM_REGIONS).map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                        )}
+                        <button disabled={isSaving} type="submit" className="col-span-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">{isSaving ? 'Đang lưu...' : 'Tạo Người Dùng'}</button>
+                      </form>
+                    </div>
+                  )}
+
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100 text-xs uppercase text-slate-500 font-bold tracking-wider">
+                                    <th className="p-4">User</th>
+                                    <th className="p-4">Role</th>
+                                    <th className="p-4">Khu vực</th>
+                                    <th className="p-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {users.map(u => (
+                                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="p-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
+                                                    {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover rounded-full" /> : u.name.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-slate-800 text-sm">{u.name}</p>
+                                                    <p className="text-xs text-slate-400">@{u.username}</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="p-4"><span className="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-bold uppercase">{u.role}</span></td>
+                                        <td className="p-4 text-sm text-slate-600 font-medium">{u.region || '-'}</td>
+                                        <td className="p-4 text-right">
+                                            <button onClick={() => handleDeleteUser(u.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Xóa User">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                  </div>
+               </div>
+            )}
+
             {/* TRAINER WORK SCHEDULE VIEW */}
             {activeTab === 'trainer-schedule' && hasPermission('tab_trainer_schedule') && (
                 <div className="space-y-6">
@@ -1037,8 +1101,200 @@ const App: React.FC = () => {
                 </div>
             )}
 
-            {/* ... other tabs ... */}
-            {/* Keeping existing tabs collapsed for brevity, only showing changed Tools tab */}
+            {activeTab === 'manage-courses' && hasPermission('tab_manage_courses') && (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-black text-slate-800">Quản Lý Môn Học</h2>
+                        <button onClick={() => setIsAddingCourse(!isAddingCourse)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all flex items-center gap-2">
+                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                           {isAddingCourse ? 'Đóng' : 'Tạo Môn Mới'}
+                        </button>
+                    </div>
+
+                    {isAddingCourse && (
+                        <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-100 animate-in slide-in-from-top-4">
+                            <h3 className="font-bold text-lg mb-4 text-slate-800">Thông Tin Môn Học</h3>
+                            <form onSubmit={handleAddCourse} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <input required type="text" placeholder="Tên môn học" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 col-span-2" value={newCourse.title} onChange={e => setNewCourse({...newCourse, title: e.target.value})} />
+                                    <textarea required placeholder="Mô tả nội dung..." className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 col-span-2 h-24 resize-none" value={newCourse.description} onChange={e => setNewCourse({...newCourse, description: e.target.value})} />
+                                    
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Bắt đầu</label><input required type="date" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.startDate} onChange={e => setNewCourse({...newCourse, startDate: e.target.value})} /></div>
+                                    <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Kết thúc</label><input required type="date" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.endDate} onChange={e => setNewCourse({...newCourse, endDate: e.target.value})} /></div>
+                                    
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input required type="time" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.startTime} onChange={e => setNewCourse({...newCourse, startTime: e.target.value})} />
+                                        <input required type="time" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.endTime} onChange={e => setNewCourse({...newCourse, endTime: e.target.value})} />
+                                    </div>
+                                    
+                                    <select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.format} onChange={e => setNewCourse({...newCourse, format: e.target.value as any})}>
+                                        <option value="Online">Online</option><option value="Offline">Offline</option><option value="Livestream">Livestream</option>
+                                    </select>
+
+                                    <input type="text" placeholder="Địa điểm / Link Zoom" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.location} onChange={e => setNewCourse({...newCourse, location: e.target.value})} />
+                                    <input type="text" placeholder="Đối tượng tham gia" className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={newCourse.targetAudience} onChange={e => setNewCourse({...newCourse, targetAudience: e.target.value})} />
+                                    
+                                    <div className="col-span-2">
+                                        <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Ảnh minh họa</label>
+                                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'course')} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                                        {imagePreview && <img src={imagePreview} className="mt-2 h-32 w-full object-cover rounded-xl border border-slate-200" />}
+                                    </div>
+                                </div>
+                                <button disabled={isSaving} type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">{isSaving ? 'Đang lưu...' : 'Lưu Môn Học'}</button>
+                            </form>
+                        </div>
+                    )}
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {courses.map(course => (
+                            <div key={course.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition-shadow">
+                                <div className="h-32 relative">
+                                    <img src={course.imageUrl} className="w-full h-full object-cover" />
+                                    <div className="absolute top-2 right-2">
+                                        <span className={`text-[10px] font-black uppercase px-2 py-1 rounded shadow-sm ${course.approvalStatus === 'approved' ? 'bg-green-500 text-white' : course.approvalStatus === 'rejected' ? 'bg-red-500 text-white' : 'bg-amber-400 text-white'}`}>
+                                            {course.approvalStatus === 'approved' ? 'Đã duyệt' : course.approvalStatus === 'rejected' ? 'Từ chối' : 'Chờ duyệt'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="p-4 flex-1 flex flex-col">
+                                    <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{course.title}</h3>
+                                    <p className="text-xs text-slate-500 line-clamp-2 mb-4">{course.description}</p>
+                                    <div className="mt-auto flex justify-between items-center border-t border-slate-100 pt-3">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{formatDate(course.startDate)}</span>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => { setEditingCourse(course); setImagePreview(course.imageUrl); }} className="text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                                            <button onClick={() => handleDeleteCourse(course.id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'course-approvals' && hasPermission('tab_course_approvals') && (
+                <div className="space-y-8">
+                    {/* --- COURSE APPROVALS --- */}
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 mb-4">Phê Duyệt Môn Học</h2>
+                        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 border-b border-slate-100">
+                                    <tr>
+                                        <th className="p-4 font-bold text-slate-600">Môn Học</th>
+                                        <th className="p-4 font-bold text-slate-600">Người Tạo</th>
+                                        <th className="p-4 font-bold text-slate-600 text-center">Trạng Thái</th>
+                                        <th className="p-4 font-bold text-slate-600 text-right">Thao Tác</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {courses.filter(c => c.approvalStatus !== 'approved' && c.approvalStatus !== 'rejected').length === 0 ? (
+                                        <tr><td colSpan={4} className="p-8 text-center text-slate-400 italic">Không có môn học nào cần duyệt.</td></tr>
+                                    ) : (
+                                        courses.filter(c => c.approvalStatus !== 'approved' && c.approvalStatus !== 'rejected').map(c => (
+                                            <tr key={c.id} className="hover:bg-slate-50/50">
+                                                <td className="p-4"><p className="font-bold text-slate-800">{c.title}</p><p className="text-xs text-slate-500">{formatDate(c.startDate)}</p></td>
+                                                <td className="p-4 text-slate-600 font-medium">{c.creatorRole}</td>
+                                                <td className="p-4 text-center"><span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-bold uppercase">{c.approvalStatus === 'pending_trainer' ? 'Chờ Trainer' : 'Chờ KA'}</span></td>
+                                                <td className="p-4 text-right space-x-2">
+                                                    <button onClick={() => handleCourseApproval(c, 'approved')} className="text-green-600 hover:bg-green-50 px-3 py-1 rounded font-bold text-xs border border-green-200">Duyệt</button>
+                                                    <button onClick={() => handleCourseApproval(c, 'rejected')} className="text-red-600 hover:bg-red-50 px-3 py-1 rounded font-bold text-xs border border-red-200">Từ Chối</button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* --- REGISTRATION APPROVALS --- */}
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 mb-4">Phê Duyệt Đăng Ký</h2>
+                        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 border-b border-slate-100">
+                                    <tr>
+                                        <th className="p-4 font-bold text-slate-600">Người Đăng Ký</th>
+                                        <th className="p-4 font-bold text-slate-600">Môn Học</th>
+                                        <th className="p-4 font-bold text-slate-600">Khu Vực</th>
+                                        <th className="p-4 font-bold text-slate-600 text-right">Thao Tác</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {registrations.filter(r => r.status === 'pending').length === 0 ? (
+                                        <tr><td colSpan={4} className="p-8 text-center text-slate-400 italic">Không có yêu cầu đăng ký nào.</td></tr>
+                                    ) : (
+                                        registrations.filter(r => r.status === 'pending').map(reg => {
+                                            const course = courses.find(c => c.id === reg.courseId);
+                                            const registrant = users.find(u => u.id === reg.asmId);
+                                            return (
+                                                <tr key={reg.id} className="hover:bg-slate-50/50">
+                                                    <td className="p-4"><p className="font-bold text-slate-800">{registrant?.name || 'Unknown'}</p><p className="text-xs text-slate-500">@{registrant?.username}</p></td>
+                                                    <td className="p-4 text-slate-600 font-medium">{course?.title || 'Unknown Course'}</td>
+                                                    <td className="p-4 text-slate-500">{reg.region}</td>
+                                                    <td className="p-4 text-right space-x-2">
+                                                        <button onClick={() => handleRegistrationAction(reg, 'confirm')} className="text-green-600 hover:bg-green-50 px-3 py-1 rounded font-bold text-xs border border-green-200">Duyệt</button>
+                                                        <button onClick={() => handleRegistrationAction(reg, 'reject')} className="text-red-600 hover:bg-red-50 px-3 py-1 rounded font-bold text-xs border border-red-200">Từ Chối</button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {activeTab === 'manage-roles' && hasPermission('manage_roles') && (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-black text-slate-800">Quản Lý Phân Quyền</h2>
+                        <button onClick={handleSavePermissions} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 transition-all">
+                           {isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi'}
+                        </button>
+                    </div>
+                    
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+                        <table className="w-full text-sm border-collapse min-w-[800px]">
+                            <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200">
+                                    <th className="p-4 font-black text-slate-600 text-left sticky left-0 bg-slate-50 z-10 border-r border-slate-200">Chức năng \ Vai trò</th>
+                                    {[UserRole.ADMIN, UserRole.KA, UserRole.TRAINER, UserRole.ASM, UserRole.RSM, UserRole.PM].map(role => (
+                                        <th key={role} className="p-4 font-black text-slate-600 text-center min-w-[100px]">{role}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {Object.entries(FEATURE_LABELS).map(([key, label]) => (
+                                    <tr key={key} className="hover:bg-slate-50/50">
+                                        <td className="p-4 font-medium text-slate-700 sticky left-0 bg-white border-r border-slate-100 z-10">{label}</td>
+                                        {[UserRole.ADMIN, UserRole.KA, UserRole.TRAINER, UserRole.ASM, UserRole.RSM, UserRole.PM].map(role => {
+                                            const isChecked = rolePermissions.find(p => p.role === role)?.features.includes(key as FeatureKey);
+                                            const isAdminLocked = role === UserRole.ADMIN && key === 'manage_roles';
+                                            return (
+                                                <td key={role} className="p-4 text-center">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isChecked} 
+                                                        disabled={isAdminLocked}
+                                                        onChange={(e) => handlePermissionChange(role, key as FeatureKey, e.target.checked)}
+                                                        className={`w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 ${isAdminLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                    />
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
             {activeTab === 'catalog' && hasPermission('tab_catalog') && (
               <div className="space-y-6 pb-20">
                   <div className="flex justify-between items-center">
@@ -1167,6 +1423,74 @@ const App: React.FC = () => {
                       </div>
                   )}
               </div>
+            )}
+
+            {activeTab === 'registrations' && hasPermission('tab_registrations') && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-black text-slate-800">Môn Học Đã Đăng Ký</h2>
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                   <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                                <th className="p-4 font-bold text-slate-600">Môn Học</th>
+                                <th className="p-4 font-bold text-slate-600">Thời Gian</th>
+                                <th className="p-4 font-bold text-slate-600 text-center">Trạng Thái</th>
+                                <th className="p-4 font-bold text-slate-600 text-right">Thao Tác</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                            {registrations.filter(r => r.asmId === currentUser.id).length === 0 ? (
+                                <tr><td colSpan={4} className="p-8 text-center text-slate-400 italic">Bạn chưa đăng ký môn học nào.</td></tr>
+                            ) : (
+                                registrations.filter(r => r.asmId === currentUser.id).map(reg => {
+                                    const course = courses.find(c => c.id === reg.courseId);
+                                    if (!course) return null;
+                                    return (
+                                        <tr key={reg.id} className="hover:bg-slate-50/50">
+                                            <td className="p-4"><p className="font-bold text-slate-800">{course.title}</p><p className="text-xs text-slate-500">{course.format}</p></td>
+                                            <td className="p-4 text-slate-600 font-medium">{formatDate(course.startDate)}</td>
+                                            <td className="p-4 text-center">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${reg.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {reg.status === 'confirmed' ? 'Thành Công' : 'Chờ Duyệt'}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => handleCancelRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-xs font-bold hover:underline">Hủy</button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                   </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'profile' && hasPermission('tab_profile') && (
+                <div className="max-w-2xl mx-auto space-y-6">
+                    <h2 className="text-2xl font-black text-slate-800">Thông Tin Cá Nhân</h2>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <div className="flex flex-col items-center mb-6">
+                            <div className="w-24 h-24 rounded-full bg-slate-200 mb-4 overflow-hidden relative group">
+                                {currentUser.avatarUrl ? <img src={currentUser.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-slate-400">{currentUser.name.charAt(0)}</div>}
+                                <label className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                                    <span className="text-white text-xs font-bold">Đổi ảnh</span>
+                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, 'user')} />
+                                </label>
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800">{currentUser.name}</h3>
+                            <p className="text-slate-500 text-sm uppercase font-bold">{currentUser.role} - {currentUser.region}</p>
+                        </div>
+                        <form onSubmit={handleSaveProfile} className="space-y-4">
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1">Họ và tên</label><input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" value={profileData.name || ''} onChange={e => setProfileData({...profileData, name: e.target.value})} /></div>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1">Email</label><input type="email" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" value={profileData.email || ''} onChange={e => setProfileData({...profileData, email: e.target.value})} /></div>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1">Số điện thoại</label><input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" value={profileData.phone || ''} onChange={e => setProfileData({...profileData, phone: e.target.value})} /></div>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1">Mật khẩu mới</label><input type="password" placeholder="Nhập nếu muốn đổi mật khẩu" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl" value={profileData.password || ''} onChange={e => setProfileData({...profileData, password: e.target.value})} /></div>
+                            <button type="submit" disabled={isSaving} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 mt-4">{isSaving ? 'Đang lưu...' : 'Lưu Thông Tin'}</button>
+                        </form>
+                    </div>
+                </div>
             )}
 
             {/* RESTORED TOOLS TAB */}
