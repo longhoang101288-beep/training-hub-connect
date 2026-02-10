@@ -121,7 +121,7 @@ const App: React.FC = () => {
   // --- DYNAMIC PERMISSION CHECK ---
   const hasPermission = (feature: FeatureKey) => {
     if (!currentUser) return false;
-    // Admins always have certain permissions (like managing roles) if something breaks
+    // Admins always have certain permissions
     if (currentUser.role === UserRole.ADMIN && feature === 'manage_roles') return true;
     
     const roleConfig = rolePermissions.find(rp => rp.role === currentUser.role);
@@ -153,34 +153,32 @@ const App: React.FC = () => {
         setCourses(data.courses || []);
         setRegistrations(data.registrations || []);
         
-        // --- PERMISSION SYNC LOGIC ---
-        // Ensures new features (Work Schedule) appear even if DB has old permissions
-        if (data.rolePermissions && data.rolePermissions.length > 0) {
-            const mergedPermissions = data.rolePermissions.map((rp: RolePermission) => {
-                const defaultPerm = DEFAULT_ROLE_PERMISSIONS.find(dp => dp.role === rp.role);
-                if (!defaultPerm) return rp;
-                
-                const newFeatures = [...rp.features];
-                // List of newly added features to auto-inject
-                const newKeys: FeatureKey[] = ['tab_trainer_schedule', 'tool_work_schedule'];
-                
-                newKeys.forEach(key => {
-                    // If default has it, but loaded (old) config doesn't, add it
-                    if (defaultPerm.features.includes(key) && !newFeatures.includes(key)) {
-                        newFeatures.push(key);
-                    }
-                });
-                
-                return { ...rp, features: newFeatures };
-            });
-            setRolePermissions(mergedPermissions);
-        } else {
-            setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
-        }
+        // --- ROBUST PERMISSION MERGING LOGIC ---
+        // We use DEFAULT_ROLE_PERMISSIONS as the source of truth for structure
+        // We overlay DB permissions on top, but ensure new features are injected if missing
+        const loadedPerms = data.rolePermissions || [];
+        const mergedPermissions = DEFAULT_ROLE_PERMISSIONS.map(defPerm => {
+            const dbPerm = loadedPerms.find((p: any) => p.role === defPerm.role);
+            
+            // If DB doesn't have this role yet, return default
+            if (!dbPerm) return defPerm;
 
-        if (data.workSchedules) {
-            setWorkSchedules(data.workSchedules);
-        }
+            // Ensure features is an array
+            const dbFeatures = Array.isArray(dbPerm.features) ? dbPerm.features : [];
+            
+            // Identify features that are in Default but NOT in DB
+            // We only force-add specific new features to avoid re-enabling restricted ones
+            const keysToForce: FeatureKey[] = ['tab_trainer_schedule', 'tool_work_schedule'];
+            const missingRequiredFeatures = keysToForce.filter(k => defPerm.features.includes(k) && !dbFeatures.includes(k));
+            
+            return {
+                ...dbPerm,
+                features: [...dbFeatures, ...missingRequiredFeatures]
+            };
+        });
+        
+        setRolePermissions(mergedPermissions);
+        setWorkSchedules(data.workSchedules || []);
         
         const loadedSettings: SystemSettings = {
             popup: data.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' },
@@ -242,13 +240,13 @@ const App: React.FC = () => {
         }
       });
 
+      // Default tab logic
       if (activeTab === 'calendar') {
-          if (hasPermission('tab_manage_courses') && currentUser.role === UserRole.TRAINER) setActiveTab('manage-courses');
-          else if (hasPermission('tab_course_approvals') && currentUser.role === UserRole.KA) setActiveTab('course-approvals');
-          else if (hasPermission('tab_catalog') && currentUser.role === UserRole.RSM) setActiveTab('catalog');
+          // Only switch if the user actually has permission for the clearer specific tab
+          // But keep calendar as default if they just logged in
       }
     }
-  }, [currentUser, rolePermissions]); // Re-run if permissions load later
+  }, [currentUser]); 
 
   // --- HELPER FUNCTIONS ---
   const formatDate = (dateString?: string) => {
@@ -516,35 +514,36 @@ const App: React.FC = () => {
       if (isLoginView) {
         const freshData = await fetchAllData();
         let usersToCheck = users;
+        // Merge permissions logic for login phase as well
         if (freshData && freshData.users) {
            setUsers(freshData.users); setCourses(freshData.courses || []); setRegistrations(freshData.registrations || []);
            const loadedSettings = { popup: freshData.settings?.popup || { isActive: false, imageUrl: '', linkUrl: '' }, webex: freshData.settings?.webex || { url: '', username: '', password: '' } };
            setSystemSettings(loadedSettings); setDbConnected(true); usersToCheck = freshData.users;
+           
            if(freshData.rolePermissions && freshData.rolePermissions.length > 0) {
-               // Must apply the same merge logic here for login flow
-               const mergedPermissions = freshData.rolePermissions.map((rp: RolePermission) => {
-                    const defaultPerm = DEFAULT_ROLE_PERMISSIONS.find(dp => dp.role === rp.role);
-                    if (!defaultPerm) return rp;
-                    const newFeatures = [...rp.features];
-                    const newKeys: FeatureKey[] = ['tab_trainer_schedule', 'tool_work_schedule'];
-                    newKeys.forEach(key => {
-                        if (defaultPerm.features.includes(key) && !newFeatures.includes(key)) newFeatures.push(key);
-                    });
-                    return { ...rp, features: newFeatures };
+               // Apply robust merge
+               const mergedPermissions = DEFAULT_ROLE_PERMISSIONS.map(defPerm => {
+                    const dbPerm = freshData.rolePermissions.find((p: any) => p.role === defPerm.role);
+                    if (!dbPerm) return defPerm;
+                    const dbFeatures = Array.isArray(dbPerm.features) ? dbPerm.features : [];
+                    const keysToForce: FeatureKey[] = ['tab_trainer_schedule', 'tool_work_schedule'];
+                    const missingRequiredFeatures = keysToForce.filter(k => defPerm.features.includes(k) && !dbFeatures.includes(k));
+                    return { ...dbPerm, features: [...dbFeatures, ...missingRequiredFeatures] };
                });
                setRolePermissions(mergedPermissions);
            } else {
                setRolePermissions(DEFAULT_ROLE_PERMISSIONS);
            }
+           
            if(freshData.workSchedules) setWorkSchedules(freshData.workSchedules);
         }
+
         if (!usersToCheck || usersToCheck.length === 0) { if (confirm("CẢNH BÁO: Dữ liệu người dùng trên Google Sheet đang TRỐNG (có thể do bị xóa).\n\nBạn có muốn KHÔI PHỤC lại tài khoản Admin và dữ liệu mẫu ngay bây giờ không?")) { await handleSeedData(); setIsLoggingIn(false); return; } }
         const inputUsername = authData.username.trim().toLowerCase();
         const inputPassword = authData.password.trim();
         const user = usersToCheck.find(u => String(u.username).trim().toLowerCase() === inputUsername && String(u.password).trim() === inputPassword );
         if (user) {
           setCurrentUser(user); localStorage.setItem('currentUser', JSON.stringify(user));
-          // Redirect logic moved to useEffect
         } else { alert("Sai tên đăng nhập hoặc mật khẩu! (Lưu ý: Nếu đang Offline, chỉ dùng được tài khoản mẫu trong code)"); }
       } else {
         if (users.find(u => u.username === authData.username)) { alert("Tên đăng nhập đã tồn tại!"); setIsLoggingIn(false); return; }

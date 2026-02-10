@@ -5,7 +5,7 @@ import { MOCK_REGISTRATIONS, DEFAULT_ROLE_PERMISSIONS } from "../constants";
 // =============================================================================================
 // QUAN TRỌNG: BẠN CẦN CẬP NHẬT URL NÀY SAU KHI DEPLOY GOOGLE APPS SCRIPT
 // =============================================================================================
-const API_URL = "https://script.google.com/macros/s/AKfycbzwm0pUdkvALJZlp4g072maVe9CHu506lO3tzawOp_IgdKv7RdV4T44a1SV4X4CuULmLw/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbwQNRUvTgNa6fVOFjN5ucBN3uYazyFGDRwBgwtSRejgaDX8qmJl36vj-gDtp5FBx7w6Mg/exec"; 
 
 export const fetchAllData = async () => {
   try {
@@ -42,21 +42,27 @@ export const fetchAllData = async () => {
       }
 
       // Parse nested JSON strings (role permissions)
-      if (data.rolepermissions) {
-         data.rolePermissions = data.rolepermissions.map((rp: any) => ({
+      // Robust check for different casing that might come from Google Sheets API
+      const rolePerms = data.rolePermissions || data.rolepermissions || data.RolePermissions;
+      if (rolePerms) {
+         // Assign back to standard key
+         data.rolePermissions = rolePerms.map((rp: any) => ({
             ...rp,
-            features: (typeof rp.features === 'string' && rp.features.startsWith('['))
-               ? JSON.parse(rp.features)
-               : []
+            features: (typeof rp.features === 'string')
+               ? (rp.features.startsWith('[') ? JSON.parse(rp.features) : [])
+               : (Array.isArray(rp.features) ? rp.features : [])
          }));
       }
       
       // Parse nested JSON strings (work schedules)
-      if (data.workschedules) {
-          data.workSchedules = data.workschedules.map((ws: any) => ({
+      const workScheds = data.workSchedules || data.workschedules || data.WorkSchedules;
+      if (workScheds) {
+          data.workSchedules = workScheds.map((ws: any) => ({
               ...ws,
               days: (typeof ws.days === 'string' && ws.days.startsWith('{')) ? JSON.parse(ws.days) : ws.days
           }));
+      } else {
+          data.workSchedules = [];
       }
 
       return data;
