@@ -5,7 +5,7 @@ import { MOCK_REGISTRATIONS, DEFAULT_ROLE_PERMISSIONS } from "../constants";
 // =============================================================================================
 // QUAN TRỌNG: BẠN CẦN CẬP NHẬT URL NÀY SAU KHI DEPLOY GOOGLE APPS SCRIPT
 // =============================================================================================
-const API_URL = "https://script.google.com/macros/s/AKfycbxt21kaZhVXgG7lauFyx1Qou7bmuIH8MaBar92MI6i4yGfUAG1FsYuy5qRgNKiUkcBFnA/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbwQNRUvTgNa6fVOFjN5ucBN3uYazyFGDRwBgwtSRejgaDX8qmJl36vj-gDtp5FBx7w6Mg/exec"; 
 
 export const fetchAllData = async () => {
   try {
